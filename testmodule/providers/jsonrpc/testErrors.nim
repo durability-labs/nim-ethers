@@ -1,7 +1,17 @@
-import std/unittest
+import std/sequtils
+import std/typetraits
+
+import stew/byteutils
+import pkg/asynctest/chronos/unittest
 import pkg/serde
 import pkg/questionable
+import pkg/ethers/providers/jsonrpc
 import pkg/ethers/providers/jsonrpc/errors
+import pkg/ethers/erc20
+import pkg/json_rpc/clients/httpclient
+import ./mocks/mockHttpServer
+import ../../examples
+import ../../hardhat
 
 suite "JSON RPC errors":
 
@@ -25,3 +35,106 @@ suite "JSON RPC errors":
       }
     }
     check JsonRpcProviderError.new(error).data == some @[0xab'u8, 0xcd'u8]
+
+type
+  TestToken = ref object of Erc20Token
+
+method mint(token: TestToken, holder: Address, amount: UInt256): Confirmable {.base, contract.}
+
+suite "Network errors":
+
+  var provider: JsonRpcProvider
+  var mockServer: MockHttpServer
+  var token: TestToken
+
+  setup:
+    mockServer = MockHttpServer.init(initTAddress("127.0.0.1:0"))
+    mockServer.start()
+    provider = JsonRpcProvider.new("http://" & $mockServer.address)
+
+    let deployment = readDeployment()
+    token = TestToken.new(!deployment.address(TestToken), provider)
+
+  teardown:
+    await provider.close()
+    await mockServer.stop()
+
+  proc registerRpcMethods(response: RpcResponse) =
+    mockServer.registerRpcMethod("eth_accounts", response)
+    mockServer.registerRpcMethod("eth_call", response)
+    mockServer.registerRpcMethod("eth_sendTransaction", response)
+    mockServer.registerRpcMethod("eth_sendRawTransaction", response)
+    mockServer.registerRpcMethod("eth_newBlockFilter", response)
+    mockServer.registerRpcMethod("eth_newFilter", response)
+    # mockServer.registerRpcMethod("eth_subscribe", response) # TODO: handle
+    # eth_subscribe for websockets
+
+  proc testCustomResponse(errorName: string, responseHttpCode: HttpCode, responseText: string, errorType: type CatchableError) =
+    let response = proc(request: HttpRequestRef): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
+      try:
+        return await request.respond(responseHttpCode, responseText)
+      except HttpWriteError as exc:
+        return defaultResponse(exc)
+
+    let testNamePrefix = errorName & " error response is converted to " & errorType.name & " for "
+    test testNamePrefix & "sending a manual RPC method request":
+      registerRpcMethods(response)
+      expect errorType:
+        discard await provider.send("eth_accounts")
+
+    test testNamePrefix & "calling a provider method that converts errors when calling a generated RPC request":
+      registerRpcMethods(response)
+      expect errorType:
+        discard await provider.listAccounts()
+
+    test testNamePrefix & "calling a view method of a contract":
+      registerRpcMethods(response)
+      expect errorType:
+        discard await token.balanceOf(Address.example)
+
+    test testNamePrefix & "calling a contract method that executes a transaction":
+      registerRpcMethods(response)
+      expect errorType:
+        token = TestToken.new(token.address, provider.getSigner())
+        discard await token.mint(
+          Address.example, 100.u256,
+          TransactionOverrides(gasLimit: 100.u256.some, chainId: 1.u256.some)
+        )
+
+    test testNamePrefix & "sending a manual transaction":
+      registerRpcMethods(response)
+      expect errorType:
+        let tx = Transaction.example
+        discard await provider.getSigner().sendTransaction(tx)
+
+    test testNamePrefix & "sending a raw transaction":
+      registerRpcMethods(response)
+      expect errorType:
+        const pk_with_funds = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+        let wallet = !Wallet.new(pk_with_funds)
+        let tx = Transaction(
+          to: wallet.address,
+          nonce: some 0.u256,
+          chainId: some 31337.u256,
+          gasPrice: some 1_000_000_000.u256,
+          gasLimit: some 21_000.u256,
+        )
+        let signedTx = await wallet.signTransaction(tx)
+        discard await provider.sendTransaction(signedTx)
+
+    test testNamePrefix & "subscribing to blocks":
+      registerRpcMethods(response)
+      expect errorType:
+        let emptyHandler = proc(blckResult: ?!Block) = discard
+        discard await provider.subscribe(emptyHandler)
+
+    test testNamePrefix & "subscribing to logs":
+      registerRpcMethods(response)
+      expect errorType:
+        let filter = EventFilter(address: Address.example, topics: @[array[32, byte].example])
+        let emptyHandler = proc(log: ?!Log) = discard
+        discard await provider.subscribe(filter, emptyHandler)
+
+  testCustomResponse("429", Http429, "Too many requests", RequestLimitError)
+  testCustomResponse("408", Http408, "Request timed out", RequestTimeoutError)
+  testCustomResponse("non-429", Http500, "Server error", JsonRpcProviderError)

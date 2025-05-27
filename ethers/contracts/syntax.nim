@@ -69,7 +69,7 @@ func addOverridesParameter*(procedure: var NimNode) =
 func addAsyncPragma*(procedure: var NimNode) =
   procedure.addPragma nnkExprColonExpr.newTree(
     quote do: async,
-    quote do: (raises: [CancelledError, ProviderError, EthersError])
+    quote do: (raises: [CancelledError, ProviderError, EthersError, RpcNetworkError])
   )
 
 func addUsedPragma*(procedure: var NimNode) =

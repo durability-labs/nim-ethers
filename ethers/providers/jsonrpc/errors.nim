@@ -31,19 +31,53 @@ func new*(_: type JsonRpcProviderError, json: JsonNode): ref JsonRpcProviderErro
   error
 
 proc raiseJsonRpcProviderError*(
-  message: string) {.raises: [JsonRpcProviderError].} =
-  if json =? JsonNode.fromJson(message):
+  error: ref CatchableError, message = error.msg) {.raises: [JsonRpcProviderError].} =
+  if json =? JsonNode.fromJson(error.msg):
     raise JsonRpcProviderError.new(json)
   else:
     raise newException(JsonRpcProviderError, message)
 
+proc underlyingErrorOf(e: ref Exception, T: type CatchableError): (ref CatchableError) =
+  if e of (ref T):
+    return (ref T)(e)
+  elif not e.parent.isNil:
+    return e.parent.underlyingErrorOf T
+  else:
+    return nil
+
 template convertError*(body) =
   try:
-    body
+    try:
+      body
+    # Inspect SubscriptionErrors and re-raise underlying JsonRpcErrors so that
+    # exception inspection and resolution only needs to happen once. All
+    # CatchableErrors that occur in the Subscription module are converted to
+    # SubscriptionError, with the original error preserved as the exception's
+    # parent.
+    except SubscriptionError, SignerError:
+      let e = getCurrentException()
+      let parent = e.underlyingErrorOf(JsonRpcError)
+      if not parent.isNil:
+        raise parent
   except CancelledError as error:
     raise error
+  except RpcPostError as error:
+    raiseNetworkError(error)
+  except FailedHttpResponse as error:
+    raiseNetworkError(error)
+  except ErrorResponse as error:
+    if error.status == 429:
+      raise newException(RequestLimitError, error.msg, error)
+    elif error.status == 408:
+      raise newException(RequestTimeoutError, error.msg, error)
+    else:
+      raiseJsonRpcProviderError(error)
   except JsonRpcError as error:
-    raiseJsonRpcProviderError(error.msg)
+    var message = error.msg
+    if jsn =? JsonNode.fromJson(message):
+      if "message" in jsn:
+        message = jsn{"message"}.getStr
+    raiseJsonRpcProviderError(error, message)
   except CatchableError as error:
-    raiseJsonRpcProviderError(error.msg)
+    raiseJsonRpcProviderError(error)
 

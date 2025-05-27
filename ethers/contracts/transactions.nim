@@ -34,13 +34,15 @@ proc decodeResponse(T: type, bytes: seq[byte]): T {.raises: [ContractError].} =
 
 proc call(
     provider: Provider, transaction: Transaction, overrides: TransactionOverrides
-): Future[seq[byte]] {.async: (raises: [ProviderError, CancelledError]).} =
+): Future[seq[byte]] {.async: (raises: [ProviderError, CancelledError, RpcNetworkError]).} =
   if overrides of CallOverrides and blockTag =? CallOverrides(overrides).blockTag:
     await provider.call(transaction, blockTag)
   else:
     await provider.call(transaction)
 
-proc callTransaction*(call: ContractCall) {.async: (raises: [ProviderError, SignerError, CancelledError]).} =
+proc callTransaction*(
+  call: ContractCall
+) {.async: (raises: [ProviderError, SignerError, CancelledError, RpcNetworkError]).} =
   var transaction = createTransaction(call)
 
   if signer =? call.contract.signer and transaction.sender.isNone:
@@ -48,7 +50,10 @@ proc callTransaction*(call: ContractCall) {.async: (raises: [ProviderError, Sign
 
   discard await call.contract.provider.call(transaction, call.overrides)
 
-proc callTransaction*(call: ContractCall, ReturnType: type): Future[ReturnType] {.async: (raises: [ProviderError, SignerError, ContractError, CancelledError]).} =
+proc callTransaction*(
+  call: ContractCall,
+  ReturnType: type
+): Future[ReturnType] {.async: (raises: [ProviderError, SignerError, ContractError, CancelledError, RpcNetworkError]).} =
   var transaction = createTransaction(call)
 
   if signer =? call.contract.signer and transaction.sender.isNone:
@@ -57,7 +62,9 @@ proc callTransaction*(call: ContractCall, ReturnType: type): Future[ReturnType] 
   let response = await call.contract.provider.call(transaction, call.overrides)
   return decodeResponse(ReturnType, response)
 
-proc sendTransaction*(call: ContractCall): Future[?TransactionResponse] {.async: (raises: [SignerError, ProviderError, CancelledError]).} =
+proc sendTransaction*(
+  call: ContractCall
+): Future[?TransactionResponse] {.async: (raises: [SignerError, ProviderError, CancelledError, RpcNetworkError]).} =
   if signer =? call.contract.signer:
     withLock(signer):
       let transaction = createTransaction(call)

@@ -8,7 +8,7 @@ import ethers/provider
 import ethers/providers/jsonrpc/subscriptions
 
 import ../../examples
-import ./rpc_mock
+import ./mocks/mockRpcHttpServerSubscriptions
 
 suite "JsonRpcSubscriptions":
 
@@ -111,18 +111,18 @@ suite "HTTP polling subscriptions - mock tests":
 
   var subscriptions: PollingSubscriptions
   var client: RpcHttpClient
-  var mockServer: MockRpcHttpServer
+  var mockServer: MockRpcHttpServerSubscriptions
 
   privateAccess(PollingSubscriptions)
   privateAccess(JsonRpcSubscriptions)
 
   proc startServer() {.async.} =
-    mockServer = MockRpcHttpServer.new()
+    mockServer = MockRpcHttpServerSubscriptions.new()
     mockServer.start()
-    await client.connect("http://" & $mockServer.localAddress()[0])
+    await client.connect("http://" & $MockRpcHttpServer(mockServer).localAddress()[0])
 
   proc stopServer() {.async.} =
-    await mockServer.stop()
+    await MockRpcHttpServer(mockServer).stop()
 
   setup:
     client = newRpcHttpClient()

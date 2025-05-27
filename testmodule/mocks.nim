@@ -13,13 +13,13 @@ method provider*(signer: MockSigner): Provider =
 
 method getAddress*(
   signer: MockSigner): Future[Address]
-  {.async: (raises:[ProviderError, SignerError, CancelledError]).} =
+  {.async: (raises:[ProviderError, SignerError, CancelledError, RpcNetworkError]).} =
 
   return signer.address
 
 method sendTransaction*(
   signer: MockSigner,
   transaction: Transaction): Future[TransactionResponse]
-  {.async: (raises:[SignerError, ProviderError, CancelledError]).} =
+  {.async: (raises:[SignerError, ProviderError, CancelledError, RpcNetworkError]).} =
 
   signer.transactions.add(transaction)

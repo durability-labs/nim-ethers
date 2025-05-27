@@ -1,4 +1,5 @@
 import pkg/questionable
+import pkg/json_rpc/errors
 import ./basics
 import ./errors
 import ./provider
@@ -15,16 +16,6 @@ type
 template raiseSignerError*(message: string, parent: ref CatchableError = nil) =
   raise newException(SignerError, message, parent)
 
-template convertError(body) =
-  try:
-    body
-  except CancelledError as error:
-    raise error
-  except ProviderError as error:
-    raise error # do not convert provider errors
-  except CatchableError as error:
-    raiseSignerError(error.msg)
-
 method provider*(
   signer: Signer): Provider {.base, gcsafe, raises: [SignerError].} =
   doAssert false, "not implemented"
@@ -32,42 +23,41 @@ method provider*(
 method getAddress*(
     signer: Signer
 ): Future[Address] {.
-    base, async: (raises: [ProviderError, SignerError, CancelledError])
+    base, async: (raises: [ProviderError, SignerError, CancelledError, RpcNetworkError])
 .} =
   doAssert false, "not implemented"
 
 method signMessage*(
     signer: Signer, message: seq[byte]
-): Future[seq[byte]] {.base, async: (raises: [SignerError, CancelledError]).} =
+): Future[seq[byte]] {.base, async: (raises: [SignerError, CancelledError, RpcNetworkError]).} =
   doAssert false, "not implemented"
 
 method sendTransaction*(
     signer: Signer, transaction: Transaction
 ): Future[TransactionResponse] {.
-    base, async: (raises: [SignerError, ProviderError, CancelledError])
+    base, async: (raises: [SignerError, ProviderError, CancelledError, RpcNetworkError])
 .} =
   doAssert false, "not implemented"
 
 method getGasPrice*(
     signer: Signer
 ): Future[UInt256] {.
-    base, async: (raises: [ProviderError, SignerError, CancelledError])
+    base, async: (raises: [ProviderError, SignerError, CancelledError, RpcNetworkError])
 .} =
   return await signer.provider.getGasPrice()
 
 method getTransactionCount*(
     signer: Signer, blockTag = BlockTag.latest
 ): Future[UInt256] {.
-    base, async: (raises: [SignerError, ProviderError, CancelledError])
+    base, async: (raises: [SignerError, ProviderError, CancelledError, RpcNetworkError])
 .} =
-  convertError:
-    let address = await signer.getAddress()
-    return await signer.provider.getTransactionCount(address, blockTag)
+  let address = await signer.getAddress()
+  return await signer.provider.getTransactionCount(address, blockTag)
 
 method estimateGas*(
     signer: Signer, transaction: Transaction, blockTag = BlockTag.latest
 ): Future[UInt256] {.
-    base, async: (raises: [SignerError, ProviderError, CancelledError])
+    base, async: (raises: [SignerError, ProviderError, CancelledError, RpcNetworkError])
 .} =
   var transaction = transaction
   transaction.sender = some(await signer.getAddress())
@@ -76,14 +66,14 @@ method estimateGas*(
 method getChainId*(
     signer: Signer
 ): Future[UInt256] {.
-    base, async: (raises: [SignerError, ProviderError, CancelledError])
+    base, async: (raises: [SignerError, ProviderError, CancelledError, RpcNetworkError])
 .} =
   return await signer.provider.getChainId()
 
 method getNonce(
     signer: Signer
 ): Future[UInt256] {.
-    base, async: (raises: [SignerError, ProviderError, CancelledError])
+    base, async: (raises: [SignerError, ProviderError, CancelledError, RpcNetworkError])
 .} =
   return await signer.getTransactionCount(BlockTag.pending)
 
@@ -103,15 +93,14 @@ template withLock*(signer: Signer, body: untyped) =
 method populateTransaction*(
   signer: Signer,
   transaction: Transaction): Future[Transaction]
-  {.base, async: (raises: [CancelledError, ProviderError, SignerError]).} =
+  {.base, async: (raises: [CancelledError, ProviderError, SignerError, RpcNetworkError]).} =
   ## Populates a transaction with sender, chainId, gasPrice, nonce, and gasLimit.
   ## NOTE: to avoid async concurrency issues, this routine should be called with
   ## a lock if it is followed by sendTransaction. For reference, see the `send`
   ## function in contract.nim.
 
   var address: Address
-  convertError:
-    address = await signer.getAddress()
+  address = await signer.getAddress()
 
   if sender =? transaction.sender and sender != address:
     raiseSignerError("from address mismatch")
@@ -154,7 +143,7 @@ method populateTransaction*(
 method cancelTransaction*(
   signer: Signer,
   tx: Transaction
-): Future[TransactionResponse] {.base, async: (raises: [SignerError, CancelledError, ProviderError]).} =
+): Future[TransactionResponse] {.base, async: (raises: [SignerError, CancelledError, ProviderError, RpcNetworkError]).} =
   # cancels a transaction by sending with a 0-valued transaction to ourselves
   # with the failed tx's nonce
 
@@ -164,7 +153,7 @@ method cancelTransaction*(
     raiseSignerError "transaction must have nonce"
 
   withLock(signer):
-    convertError:
-      var cancelTx = Transaction(to: sender, value: 0.u256, nonce: some nonce)
-      cancelTx = await signer.populateTransaction(cancelTx)
-      return await signer.sendTransaction(cancelTx)
+    # convertError:
+    var cancelTx = Transaction(to: sender, value: 0.u256, nonce: some nonce)
+    cancelTx = await signer.populateTransaction(cancelTx)
+    return await signer.sendTransaction(cancelTx)

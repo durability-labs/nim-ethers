@@ -122,7 +122,7 @@ template withLock*(subscriptions: WebSocketSubscriptions, body: untyped) =
 
 # This is a workaround to manage the 5 minutes limit due to hardhat.
 # See https://github.com/NomicFoundation/hardhat/issues/2053#issuecomment-1061374064
-proc resubscribeWebsocketEventsOnTimeout*(subscriptions: WebsocketSubscriptions) {.async: (raises: [CancelledError]).} =
+proc resubscribeWebsocketEventsOnTimeout*(subscriptions: WebSocketSubscriptions) {.async: (raises: [CancelledError]).} =
   while true:
     await sleepAsync(subscriptions.resubscribeInterval.seconds)
     try:
