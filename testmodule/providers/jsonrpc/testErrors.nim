@@ -138,3 +138,31 @@ suite "Network errors":
   testCustomResponse("429", Http429, "Too many requests", RequestLimitError)
   testCustomResponse("408", Http408, "Request timed out", RequestTimeoutError)
   testCustomResponse("non-429", Http500, "Server error", JsonRpcProviderError)
+
+  test "raises RpcNetworkError when reading response headers times out":
+    privateAccess(JsonRpcProvider)
+    privateAccess(RpcHttpClient)
+
+    let responseTimeout = proc(request: HttpRequestRef): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
+      try:
+        await sleepAsync(5.minutes)
+        return await request.respond(Http200, "OK")
+      except HttpWriteError as exc:
+        return defaultResponse(exc)
+
+    let rpcClient = await provider.client
+    let client: RpcHttpClient = (RpcHttpClient)(rpcClient)
+    client.httpSession = HttpSessionRef.new(headersTimeout = 1.millis)
+    mockServer.registerRpcResponse("eth_accounts", responseTimeout)
+
+    expect RpcNetworkError:
+      discard await provider.send("eth_accounts")
+
+  test "raises RpcNetworkError when connection is closed":
+    await mockServer.stop()
+    expect RpcNetworkError:
+      discard await provider.send("eth_accounts")
+
+  # We don't need to recreate each and every possible exception condition (eg
+  # "Connection timed out"), as they are all wrapped up in RpcPostError and
+  # converted. The tests above cover this conversion.

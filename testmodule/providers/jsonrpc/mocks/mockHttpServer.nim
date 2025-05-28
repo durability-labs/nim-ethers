@@ -65,7 +65,7 @@ proc init*(_: type MockHttpServer, address: TransportAddress): MockHttpServer =
   server = MockHttpServer(server: res.get(), rpcResponses: newTable[string, RpcResponse]())
   return server
 
-template registerRpcMethod*(server: MockHttpServer, `method`: string, rpcResponse: untyped): untyped =
+template registerRpcResponse*(server: MockHttpServer, `method`: string, rpcResponse: untyped): untyped =
   server.rpcResponses[`method`] = rpcResponse
 
 proc address*(server: MockHttpServer): TransportAddress =
