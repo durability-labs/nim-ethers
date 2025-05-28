@@ -67,9 +67,9 @@ template convertError*(body) =
     raiseNetworkError(error)
   except ErrorResponse as error:
     if error.status == 429:
-      raise newException(RequestLimitError, error.msg, error)
+      raise newException(HttpRequestLimitError, error.msg, error)
     elif error.status == 408:
-      raise newException(RequestTimeoutError, error.msg, error)
+      raise newException(HttpRequestTimeoutError, error.msg, error)
     else:
       raiseJsonRpcProviderError(error)
   except JsonRpcError as error:

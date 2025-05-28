@@ -9,8 +9,8 @@ type
     data*: ?seq[byte]
   RpcNetworkError* = object of EthersError
   RpcHttpErrorResponse* = object of RpcNetworkError
-  RequestLimitError* = object of RpcHttpErrorResponse
-  RequestTimeoutError* = object of RpcHttpErrorResponse
+  HttpRequestLimitError* = object of RpcHttpErrorResponse
+  HttpRequestTimeoutError* = object of RpcHttpErrorResponse
 
 {.push raises:[].}
 

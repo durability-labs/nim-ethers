@@ -1,3 +1,4 @@
+import std/importutils
 import std/sequtils
 import std/typetraits
 
@@ -41,7 +42,7 @@ type
 
 method mint(token: TestToken, holder: Address, amount: UInt256): Confirmable {.base, contract.}
 
-suite "Network errors":
+suite "Network errors - HTTP":
 
   var provider: JsonRpcProvider
   var mockServer: MockHttpServer
@@ -60,13 +61,13 @@ suite "Network errors":
     await mockServer.stop()
 
   proc registerRpcMethods(response: RpcResponse) =
-    mockServer.registerRpcMethod("eth_accounts", response)
-    mockServer.registerRpcMethod("eth_call", response)
-    mockServer.registerRpcMethod("eth_sendTransaction", response)
-    mockServer.registerRpcMethod("eth_sendRawTransaction", response)
-    mockServer.registerRpcMethod("eth_newBlockFilter", response)
-    mockServer.registerRpcMethod("eth_newFilter", response)
-    # mockServer.registerRpcMethod("eth_subscribe", response) # TODO: handle
+    mockServer.registerRpcResponse("eth_accounts", response)
+    mockServer.registerRpcResponse("eth_call", response)
+    mockServer.registerRpcResponse("eth_sendTransaction", response)
+    mockServer.registerRpcResponse("eth_sendRawTransaction", response)
+    mockServer.registerRpcResponse("eth_newBlockFilter", response)
+    mockServer.registerRpcResponse("eth_newFilter", response)
+    # mockServer.registerRpcResponse("eth_subscribe", response) # TODO: handle
     # eth_subscribe for websockets
 
   proc testCustomResponse(errorName: string, responseHttpCode: HttpCode, responseText: string, errorType: type CatchableError) =
@@ -135,8 +136,8 @@ suite "Network errors":
         let emptyHandler = proc(log: ?!Log) = discard
         discard await provider.subscribe(filter, emptyHandler)
 
-  testCustomResponse("429", Http429, "Too many requests", RequestLimitError)
-  testCustomResponse("408", Http408, "Request timed out", RequestTimeoutError)
+  testCustomResponse("429", Http429, "Too many requests", HttpRequestLimitError)
+  testCustomResponse("408", Http408, "Request timed out", HttpRequestTimeoutError)
   testCustomResponse("non-429", Http500, "Server error", JsonRpcProviderError)
 
   test "raises RpcNetworkError when reading response headers times out":
