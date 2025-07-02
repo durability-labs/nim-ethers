@@ -1,9 +1,11 @@
 import std/importutils
 import std/sequtils
 import std/typetraits
+import std/net
 
 import stew/byteutils
 import pkg/asynctest/chronos/unittest
+import pkg/chronos/apps/http/httpclient
 import pkg/serde
 import pkg/questionable
 import pkg/ethers/providers/jsonrpc
@@ -164,6 +166,23 @@ suite "Network errors - HTTP":
     expect RpcNetworkError:
       discard await provider.send("eth_accounts")
 
-  # We don't need to recreate each and every possible exception condition (eg
-  # "Connection timed out"), as they are all wrapped up in RpcPostError and
-  # converted. The tests above cover this conversion.
+  test "raises RpcNetworkError when connection times out":
+    privateAccess(JsonRpcProvider)
+    privateAccess(RpcHttpClient)
+    let rpcClient = await provider.client
+    let client: RpcHttpClient = (RpcHttpClient)(rpcClient)
+    client.httpSession.connectTimeout = 10.millis
+
+    let blockingSocket = newSocket()
+    blockingSocket.setSockOpt(OptReuseAddr, true)
+    blockingSocket.bindAddr(Port(9999))
+
+    await client.connect("http://localhost:9999")
+
+    expect RpcNetworkError:
+      # msg: Failed to send POST Request with JSON-RPC: Connection timed out
+      discard await provider.send("eth_accounts")
+
+  # We don't need to recreate each and every possible exception condition, as
+  # they are all wrapped up in RpcPostError and converted to RpcNetworkError.
+  # The tests above cover this conversion.
