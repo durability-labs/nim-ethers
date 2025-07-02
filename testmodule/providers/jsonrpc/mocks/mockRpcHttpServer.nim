@@ -1,31 +1,31 @@
-import ../../../examples
-import ../../../../ethers/provider
-import ../../../../ethers/providers/jsonrpc/conversions
-
-import std/sequtils
-import pkg/stew/byteutils
 import pkg/json_rpc/rpcserver except `%`, `%*`
-import pkg/json_rpc/errors
+import pkg/json_rpc/servers/httpserver
+import ./mockRpcServer
 
 {.push raises: [].}
 
-type MockRpcHttpServer* = ref object of RootObj
-  srv: RpcHttpServer
+type MockRpcHttpServer* = ref object of MockRpcServer
 
 proc new*(_: type MockRpcHttpServer): MockRpcHttpServer {.raises: [JsonRpcError].} =
-  let srv = newRpcHttpServer(["127.0.0.1:0"])
+  let srv = newRpcHttpServer(initTAddress("127.0.0.1:0"))
   MockRpcHttpServer(srv: srv)
 
-
-template registerRpcMethod*(server: MockRpcHttpServer, path: string, body: untyped): untyped =
+template registerRpcMethod*(
+    server: MockRpcHttpServer, path: string, body: untyped
+): untyped =
   server.srv.router.rpc(path, body)
 
-method start*(server: MockRpcHttpServer) {.gcsafe, base.} =
-  server.srv.start()
+method start*(server: MockRpcHttpServer) {.gcsafe, raises: [JsonRpcError].} =
+  RpcHttpServer(server.srv).start()
 
-proc stop*(server: MockRpcHttpServer) {.async.} =
-  await server.srv.stop()
-  await server.srv.closeWait()
+method stop*(server: MockRpcHttpServer) {.async: (raises: []).} =
+  try:
+    await RpcHttpServer(server.srv).stop()
+    await RpcHttpServer(server.srv).closeWait()
+  except CatchableError:
+    # stop and closeWait don't actually raise but they're not annotated with
+    # raises: []
+    discard
 
-proc localAddress*(server: MockRpcHttpServer): seq[TransportAddress] =
-  return server.srv.localAddress()
+method localAddress*(server: MockRpcHttpServer): TransportAddress =
+  return RpcHttpServer(server.srv).localAddress()[0]

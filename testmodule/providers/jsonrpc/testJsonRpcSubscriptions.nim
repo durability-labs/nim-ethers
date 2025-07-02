@@ -119,7 +119,7 @@ suite "HTTP polling subscriptions - mock tests":
   proc startServer() {.async.} =
     mockServer = MockRpcHttpServerSubscriptions.new()
     mockServer.start()
-    await client.connect("http://" & $MockRpcHttpServer(mockServer).localAddress()[0])
+    await client.connect("http://" & $mockServer.localAddress)
 
   proc stopServer() {.async.} =
     await MockRpcHttpServer(mockServer).stop()

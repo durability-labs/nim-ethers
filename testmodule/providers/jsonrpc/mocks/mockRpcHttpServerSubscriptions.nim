@@ -23,7 +23,7 @@ proc new*(_: type MockRpcHttpServerSubscriptions): MockRpcHttpServerSubscription
 proc invalidateFilter*(server: MockRpcHttpServerSubscriptions, jsonId: JsonNode) =
   server.filters.keepItIf it != jsonId.getStr
 
-method start*(server: MockRpcHttpServerSubscriptions) =
+method start*(server: MockRpcHttpServerSubscriptions) {.raises: [JsonRpcError].} =
   server.registerRpcMethod("eth_newFilter") do(filter: EventFilter) -> string:
     let filterId = "0x" & (array[16, byte].example).toHex
     server.filters.add filterId
