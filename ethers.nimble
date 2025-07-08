@@ -13,6 +13,8 @@ requires "serde >= 1.2.1 & < 1.3.0"
 requires "stint >= 0.8.1 & < 0.9.0"
 requires "stew >= 0.2.0 & < 0.3.0"
 requires "eth >= 0.5.0 & < 0.6.0"
+requires "websock >= 0.2.0 & < 0.3.0"
+requires "httputils >= 0.2.0"
 
 task test, "Run the test suite":
   # exec "nimble install -d -y"

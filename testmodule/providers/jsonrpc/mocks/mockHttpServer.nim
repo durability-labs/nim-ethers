@@ -10,7 +10,7 @@ export httpserver
 {.push raises: [].}
 
 type
-  RpcResponse* = proc(request: HttpRequestRef): Future[HttpResponseRef] {.async: (raises: [CancelledError]), raises: [].}
+  RpcResponse* = proc(request: HttpRequestRef): Future[HttpResponseRef] {.async: (raises: [CancelledError]).}
 
   MockHttpServer* = object
     server: HttpServerRef
@@ -32,12 +32,9 @@ proc init*(_: type MockHttpServer, address: TransportAddress): MockHttpServer =
     let request = r.get()
     try:
       let body = string.fromBytes(await request.getBody())
-      echo "mockHttpServer.processRequest request: ", body
       without req =? RequestRx.fromJson(body), error:
-        echo "failed to deserialize, error: ", error.msg
         return await request.respond(Http400, "Invalid request, must be valid json rpc request")
 
-      echo "Received request with method: ", req.method
       if not server.rpcResponses.contains(req.method):
         return await request.respond(Http404, "Method not registered")
 
@@ -48,10 +45,8 @@ proc init*(_: type MockHttpServer, address: TransportAddress): MockHttpServer =
         return await request.respond(Http500, "Method lookup error with key, error: " & e.msg)
 
     except HttpProtocolError as e:
-      echo "HttpProtocolError encountered, error: ", e.msg
       return defaultResponse(e)
     except HttpTransportError as e:
-      echo "HttpTransportError encountered, error: ", e.msg
       return defaultResponse(e)
     except HttpWriteError as exc:
       return defaultResponse(exc)

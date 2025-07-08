@@ -3,16 +3,18 @@ import std/sequtils
 import std/typetraits
 import std/net
 
-import stew/byteutils
+import pkg/stew/byteutils
 import pkg/asynctest/chronos/unittest
 import pkg/chronos/apps/http/httpclient
 import pkg/serde
 import pkg/questionable
-import pkg/ethers/providers/jsonrpc
-import pkg/ethers/providers/jsonrpc/errors
-import pkg/ethers/erc20
-import pkg/json_rpc/clients/httpclient
+import pkg/ethers/providers/jsonrpc except toJson, `%`, `%*`
+import pkg/ethers/providers/jsonrpc/errors except toJson, `%`, `%*`
+import pkg/ethers/erc20 except toJson, `%`, `%*`
+import pkg/json_rpc/clients/httpclient except toJson, `%`, `%*`
+import pkg/json_rpc/clients/websocketclient except toJson, `%`, `%*`
 import pkg/websock/websock
+import pkg/websock/http/common
 import ./mocks/mockHttpServer
 import ./mocks/mockWebSocketServer
 import ../../examples
@@ -37,7 +39,14 @@ suite "JSON RPC errors":
       }
     check JsonRpcProviderError.new(error).data == some @[0xab'u8, 0xcd'u8]
 
-type TestToken = ref object of Erc20Token
+type
+  TestToken = ref object of Erc20Token
+  Before = proc(): Future[void] {.gcsafe, raises: [].}
+    # A proc that runs before each test
+
+proc runBefore(before: Before) {.async.} =
+  if before != nil:
+    await before()
 
 method mint(
   token: TestToken, holder: Address, amount: UInt256
@@ -47,6 +56,7 @@ suite "Network errors - HTTP":
   var provider: JsonRpcProvider
   var mockServer: MockHttpServer
   var token: TestToken
+  var blockingSocket: Socket
 
   setup:
     mockServer = MockHttpServer.init(initTAddress("127.0.0.1:0"))
@@ -59,6 +69,9 @@ suite "Network errors - HTTP":
   teardown:
     await provider.close()
     await mockServer.stop()
+    if not blockingSocket.isNil:
+      blockingSocket.close()
+      blockingSocket = nil
 
   proc registerRpcMethods(response: RpcResponse) =
     mockServer.registerRpcResponse("eth_accounts", response)
@@ -67,43 +80,38 @@ suite "Network errors - HTTP":
     mockServer.registerRpcResponse("eth_sendRawTransaction", response)
     mockServer.registerRpcResponse("eth_newBlockFilter", response)
     mockServer.registerRpcResponse("eth_newFilter", response)
-    # mockServer.registerRpcResponse("eth_subscribe", response) # TODO: handle
-    # eth_subscribe for websockets
 
   proc testCustomResponse(
-      errorName: string,
-      responseHttpCode: HttpCode,
-      responseText: string,
+      testNamePrefix: string,
+      response: RpcResponse,
       errorType: type CatchableError,
+      before: Before = nil,
   ) =
-    let response = proc(
-        request: HttpRequestRef
-    ): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
-      try:
-        return await request.respond(responseHttpCode, responseText)
-      except HttpWriteError as exc:
-        return defaultResponse(exc)
+    let prefix = testNamePrefix & " when "
 
-    let testNamePrefix =
-      errorName & " error response is converted to " & errorType.name & " for "
-    test testNamePrefix & "sending a manual RPC method request":
+    test prefix & "sending a manual RPC method request":
       registerRpcMethods(response)
+      await runBefore(before)
       expect errorType:
         discard await provider.send("eth_accounts")
 
-    test testNamePrefix &
+    test prefix &
       "calling a provider method that converts errors when calling a generated RPC request":
       registerRpcMethods(response)
+      await runBefore(before)
       expect errorType:
         discard await provider.listAccounts()
 
-    test testNamePrefix & "calling a view method of a contract":
+    test prefix & "calling a view method of a contract":
       registerRpcMethods(response)
+      await runBefore(before)
       expect errorType:
+        token = TestToken.new(token.address, provider.getSigner())
         discard await token.balanceOf(Address.example)
 
-    test testNamePrefix & "calling a contract method that executes a transaction":
+    test prefix & "calling a contract method that executes a transaction":
       registerRpcMethods(response)
+      await runBefore(before)
       expect errorType:
         token = TestToken.new(token.address, provider.getSigner())
         discard await token.mint(
@@ -112,14 +120,16 @@ suite "Network errors - HTTP":
           TransactionOverrides(gasLimit: 100.u256.some, chainId: 1.u256.some),
         )
 
-    test testNamePrefix & "sending a manual transaction":
+    test prefix & "sending a manual transaction":
       registerRpcMethods(response)
+      await runBefore(before)
       expect errorType:
         let tx = Transaction.example
         discard await provider.getSigner().sendTransaction(tx)
 
-    test testNamePrefix & "sending a raw transaction":
+    test prefix & "sending a raw transaction":
       registerRpcMethods(response)
+      await runBefore(before)
       expect errorType:
         const pk_with_funds =
           "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
@@ -134,15 +144,17 @@ suite "Network errors - HTTP":
         let signedTx = await wallet.signTransaction(tx)
         discard await provider.sendTransaction(signedTx)
 
-    test testNamePrefix & "subscribing to blocks":
+    test prefix & "subscribing to blocks":
       registerRpcMethods(response)
+      await runBefore(before)
       expect errorType:
         let emptyHandler = proc(blckResult: ?!Block) =
           discard
         discard await provider.subscribe(emptyHandler)
 
-    test testNamePrefix & "subscribing to logs":
+    test prefix & "subscribing to logs":
       registerRpcMethods(response)
+      await runBefore(before)
       expect errorType:
         let filter =
           EventFilter(address: Address.example, topics: @[array[32, byte].example])
@@ -150,277 +162,250 @@ suite "Network errors - HTTP":
           discard
         discard await provider.subscribe(filter, emptyHandler)
 
-  testCustomResponse("429", Http429, "Too many requests", HttpRequestLimitError)
-  testCustomResponse("408", Http408, "Request timed out", HttpRequestTimeoutError)
-  testCustomResponse("non-429", Http500, "Server error", JsonRpcProviderError)
+  proc testCustomHttpResponse(
+      errorName: string,
+      responseHttpCode: HttpCode,
+      responseText: string,
+      errorType: type CatchableError,
+  ) =
+    let response = proc(
+        request: HttpRequestRef
+    ): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
+      try:
+        return await request.respond(responseHttpCode, responseText)
+      except HttpWriteError as exc:
+        return defaultResponse(exc)
 
-  test "raises RpcNetworkError when reading response headers times out":
-    privateAccess(JsonRpcProvider)
-    privateAccess(RpcHttpClient)
+    let prefix = errorName & " error response is converted to " & errorType.name
 
-    let responseTimeout = proc(
+    testCustomResponse(prefix, response, errorType)
+
+  testCustomHttpResponse("429", Http429, "Too many requests", HttpRequestLimitError)
+  testCustomHttpResponse("408", Http408, "Request timed out", HttpRequestTimeoutError)
+  testCustomHttpResponse("non-429", Http500, "Server error", JsonRpcProviderError)
+  testCustomResponse(
+    "raises RpcNetworkError after a timeout waiting for reading response headers",
+    response = proc(
         request: HttpRequestRef
     ): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
       try:
         await sleepAsync(5.minutes)
         return await request.respond(Http200, "OK")
       except HttpWriteError as exc:
-        return defaultResponse(exc)
+        return defaultResponse(exc),
+    RpcNetworkError,
+    before = proc(): Future[void] {.async.} =
+      privateAccess(JsonRpcProvider)
+      privateAccess(RpcHttpClient)
+      let rpcClient = await provider.client
+      let client: RpcHttpClient = (RpcHttpClient)(rpcClient)
+      client.httpSession = HttpSessionRef.new(headersTimeout = 1.millis),
+  )
 
-    let rpcClient = await provider.client
-    let client: RpcHttpClient = (RpcHttpClient)(rpcClient)
-    client.httpSession = HttpSessionRef.new(headersTimeout = 1.millis)
-    mockServer.registerRpcResponse("eth_accounts", responseTimeout)
+  testCustomResponse(
+    "raises RpcNetworkError for a closed connection",
+    response = proc(
+        request: HttpRequestRef
+    ): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
+      # Simulate a closed connection
+      return HttpResponseRef.new(),
+    RpcNetworkError,
+    before = proc(): Future[void] {.async.} =
+      await mockServer.stop()
+    ,
+  )
 
-    expect RpcNetworkError:
-      discard await provider.send("eth_accounts")
-
-  test "raises RpcNetworkError when connection is closed":
-    await mockServer.stop()
-    expect RpcNetworkError:
-      discard await provider.send("eth_accounts")
-
-  test "raises RpcNetworkError when connection times out":
-    privateAccess(JsonRpcProvider)
-    privateAccess(RpcHttpClient)
-    let rpcClient = await provider.client
-    let client: RpcHttpClient = (RpcHttpClient)(rpcClient)
-    client.httpSession.connectTimeout = 10.millis
-
-    let blockingSocket = newSocket()
-    blockingSocket.setSockOpt(OptReuseAddr, true)
-    blockingSocket.bindAddr(Port(9999))
-
-    await client.connect("http://localhost:9999")
-
-    expect RpcNetworkError:
+  testCustomResponse(
+    "raises RpcNetworkError for a timed out connection",
+    response = proc(
+        request: HttpRequestRef
+    ): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
+      # Simulate a closed connection
+      return HttpResponseRef.new(),
+    RpcNetworkError,
       # msg: Failed to send POST Request with JSON-RPC: Connection timed out
-      discard await provider.send("eth_accounts")
+    before = proc(): Future[void] {.async.} =
+      privateAccess(JsonRpcProvider)
+      privateAccess(RpcHttpClient)
+      let rpcClient = await provider.client
+      let client: RpcHttpClient = (RpcHttpClient)(rpcClient)
+      client.httpSession.connectTimeout = 10.millis
 
-  # We don't need to recreate each and every possible exception condition, as
-  # they are all wrapped up in RpcPostError and converted to RpcNetworkError.
-  # The tests above cover this conversion.
+      blockingSocket = newSocket()
+      blockingSocket.setSockOpt(OptReuseAddr, true)
+      blockingSocket.bindAddr(Port(9999))
 
-# suite "Network errors - WebSocket":
+      await client.connect("http://localhost:9999")
+    ,
+  )
 
-#   var provider: JsonRpcProvider
-#   var mockWsServer: MockWebSocketServer
-#   var token: TestToken
+suite "Network errors - WebSocket":
+  var provider: JsonRpcProvider
+  var token: TestToken
+  var mockWsServer: MockWebSocketServer
 
-#   setup:
-#     mockWsServer = MockWebSocketServer.init(initTAddress("127.0.0.1:0"))
-#     await mockWsServer.start()
-#     # Get the actual bound address
-#     let actualAddress = mockWsServer.localAddress()
-#     provider = JsonRpcProvider.new("ws://" & $actualAddress & "/ws")
+  setup:
+    mockWsServer = MockWebSocketServer.init(initTAddress("127.0.0.1:0"))
+    await mockWsServer.start()
+    # Get the actual bound address
+    provider = JsonRpcProvider.new("ws://" & $mockWsServer.localAddress)
 
-#     let deployment = readDeployment()
-#     token = TestToken.new(!deployment.address(TestToken), provider)
+    let deployment = readDeployment()
+    token = TestToken.new(!deployment.address(TestToken), provider)
 
-#   teardown:
-#     await provider.close()
-#     await mockWsServer.stop()
+  teardown:
+    await mockWsServer.stop()
+    try:
+      await provider.close()
+    except WebsocketConnectionError:
+      # WebsocketConnectionError is raised when the connection is already closed
+      discard
+    provider = nil
 
-#   proc registerRpcMethods(behavior: WebSocketBehavior) =
-#     mockWsServer.registerRpcBehavior("eth_accounts", behavior)
-#     mockWsServer.registerRpcBehavior("eth_call", behavior)
-#     mockWsServer.registerRpcBehavior("eth_sendTransaction", behavior)
-#     mockWsServer.registerRpcBehavior("eth_sendRawTransaction", behavior)
-#     mockWsServer.registerRpcBehavior("eth_newBlockFilter", behavior)
-#     mockWsServer.registerRpcBehavior("eth_newFilter", behavior)
-#     mockWsServer.registerRpcBehavior("eth_subscribe", behavior)
+  proc registerRpcMethods(response: WebSocketResponse) =
+    mockWsServer.registerRpcResponse("eth_accounts", response)
+    mockWsServer.registerRpcResponse("eth_call", response)
+    mockWsServer.registerRpcResponse("eth_sendTransaction", response)
+    mockWsServer.registerRpcResponse("eth_sendRawTransaction", response)
+    mockWsServer.registerRpcResponse("eth_subscribe", response)
 
-#   proc testCustomBehavior(errorName: string, behavior: WebSocketBehavior, errorType: type CatchableError) =
-#     let testNamePrefix = errorName & " behavior is converted to " & errorType.name & " for "
+  proc testCustomResponse(
+      name: string,
+      errorType: type CatchableError,
+      response: WebSocketResponse,
+      before: Before = nil,
+  ) =
+    test name & " when sending a manual RPC method request":
+      registerRpcMethods(response)
+      await runBefore(before)
+      expect errorType:
+        discard await provider.send("eth_accounts")
 
-#     test testNamePrefix & "sending a manual RPC method request":
-#       registerRpcMethods(behavior)
-#       expect errorType:
-#         discard await provider.send("eth_accounts")
+    test name &
+      " when calling a provider method that converts errors when calling a generated RPC request":
+      registerRpcMethods(response)
+      await runBefore(before)
+      expect errorType:
+        discard await provider.listAccounts()
 
-#     test testNamePrefix & "calling a provider method that converts errors":
-#       registerRpcMethods(behavior)
-#       expect errorType:
-#         discard await provider.listAccounts()
+    test name & " when calling a view method of a contract":
+      registerRpcMethods(response)
+      await runBefore(before)
+      expect errorType:
+        token = TestToken.new(token.address, provider.getSigner())
+        discard await token.balanceOf(Address.example)
 
-#     test testNamePrefix & "calling a view method of a contract":
-#       registerRpcMethods(behavior)
-#       expect errorType:
-#         discard await token.balanceOf(Address.example)
+    test name & " when calling a contract method that executes a transaction":
+      registerRpcMethods(response)
+      await runBefore(before)
+      expect errorType:
+        token = TestToken.new(token.address, provider.getSigner())
+        discard await token.mint(
+          Address.example,
+          100.u256,
+          TransactionOverrides(gasLimit: 100.u256.some, chainId: 1.u256.some),
+        )
 
-#     test testNamePrefix & "calling a contract method that executes a transaction":
-#       registerRpcMethods(behavior)
-#       expect errorType:
-#         token = TestToken.new(token.address, provider.getSigner())
-#         discard await token.mint(
-#           Address.example, 100.u256,
-#           TransactionOverrides(gasLimit: 100.u256.some, chainId: 1.u256.some)
-#         )
+    test name & " when sending a manual transaction":
+      registerRpcMethods(response)
+      await runBefore(before)
+      expect errorType:
+        let tx = Transaction.example
+        discard await provider.getSigner().sendTransaction(tx)
 
-#     test testNamePrefix & "sending a manual transaction":
-#       registerRpcMethods(behavior)
-#       expect errorType:
-#         let tx = Transaction.example
-#         discard await provider.getSigner().sendTransaction(tx)
+    test name & " when sending a raw transaction":
+      registerRpcMethods(response)
+      await runBefore(before)
+      expect errorType:
+        const pk_with_funds =
+          "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+        let wallet = !Wallet.new(pk_with_funds)
+        let tx = Transaction(
+          to: wallet.address,
+          nonce: some 0.u256,
+          chainId: some 31337.u256,
+          gasPrice: some 1_000_000_000.u256,
+          gasLimit: some 21_000.u256,
+        )
+        let signedTx = await wallet.signTransaction(tx)
+        discard await provider.sendTransaction(signedTx)
 
-#     test testNamePrefix & "sending a raw transaction":
-#       registerRpcMethods(behavior)
-#       expect errorType:
-#         const pk_with_funds = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-#         let wallet = !Wallet.new(pk_with_funds)
-#         let tx = Transaction(
-#           to: wallet.address,
-#           nonce: some 0.u256,
-#           chainId: some 31337.u256,
-#           gasPrice: some 1_000_000_000.u256,
-#           gasLimit: some 21_000.u256,
-#         )
-#         let signedTx = await wallet.signTransaction(tx)
-#         discard await provider.sendTransaction(signedTx)
+    test name & " when subscribing to blocks":
+      privateAccess(JsonRpcProvider)
+      registerRpcMethods(response)
+      await runBefore(before)
+      expect errorType:
+        let emptyHandler = proc(blckResult: ?!Block) =
+          discard
+        discard await provider.subscribe(emptyHandler)
 
-#     test testNamePrefix & "subscribing to blocks":
-#       registerRpcMethods(behavior)
-#       expect errorType:
-#         let emptyHandler = proc(blckResult: ?!Block) = discard
-#         discard await provider.subscribe(emptyHandler)
+    test name & " when subscribing to logs":
+      registerRpcMethods(response)
+      await runBefore(before)
+      expect errorType:
+        let filter =
+          EventFilter(address: Address.example, topics: @[array[32, byte].example])
+        let emptyHandler = proc(log: ?!Log) =
+          discard
+        discard await provider.subscribe(filter, emptyHandler)
 
-#     test testNamePrefix & "subscribing to logs":
-#       registerRpcMethods(behavior)
-#       expect errorType:
-#         let filter = EventFilter(address: Address.example, topics: @[array[32, byte].example])
-#         let emptyHandler = proc(log: ?!Log) = discard
-#         discard await provider.subscribe(filter, emptyHandler)
+  test "should not raise error on normal connection and request":
+    mockWsServer.registerRpcResponse(
+      "eth_accounts",
+      proc(ws: WSSession) {.async.} =
+        let response =
+          ResponseTx(jsonrpc: "2.0", id: 1, result: % @["123"], kind: rkResult)
+        await ws.send(response.toJson)
+      ,
+    )
 
-#   # WebSocket close codes equivalent to HTTP status codes
-#   testCustomBehavior(
-#     "Policy violation close (rate limit)",
-#     createBehavior(CloseWithCode, StatusPolicyError, "Policy violation - rate limited"),
-#     WebSocketPolicyError
-#   )
+    let accounts = await provider.send("eth_accounts")
+    check @["123"] == !seq[string].fromJson(accounts)
 
-#   testCustomBehavior(
-#     "Server error close",
-#     createBehavior(CloseWithCode, StatusUnexpectedError, "Internal server error"),
-#     JsonRpcProviderError
-#   )
-
-#   # testCustomBehavior(
-#   #   "Service unavailable close",
-#   #   createBehavior(CloseWithCode, StatusCodes.TryAgainLater, "Try again later"),
-#   #   WebSocketServiceUnavailableError
-#   # )
-
-#   testCustomBehavior(
-#     "Abrupt disconnect",
-#     createBehavior(AbruptClose),
-#     RpcNetworkError
-#   )
-
-#   test "raises RpcNetworkError when WebSocket connection times out":
-#     registerRpcMethods(createBehavior(Timeout, delay = 5.minutes))
-
-#     # Set a short timeout on the WebSocket client
-#     privateAccess(JsonRpcProvider)
-#     privateAccess(RpcWebSocketClient)
-
-#     let rpcClient = await provider.client
-#     let client = RpcWebSocketClient(rpcClient)
-#     # Note: Actual timeout setting depends on nim-websock implementation
-#     # This may need to be adjusted based on available APIs
-
-#     expect RpcNetworkError:
-#       discard await provider.send("eth_accounts").wait(1.seconds)
-
-#   test "raises RpcNetworkError when WebSocket connection is closed unexpectedly":
-#     # Start a request, then close the server
-#     let sendFuture = provider.send("eth_accounts")
-#     await sleepAsync(10.millis)
-#     await mockWsServer.stop()
-
-#     expect RpcNetworkError:
-#       discard await sendFuture
-
-#   test "raises RpcNetworkError when WebSocket connection fails to establish":
-#     # Stop the server first
-#     await mockWsServer.stop()
-
-#     expect RpcNetworkError:
-#       let deadProvider = JsonRpcProvider.new("ws://127.0.0.1:9999/ws")
-#       discard await deadProvider.send("eth_accounts")
-
-#   test "handles WebSocket protocol errors gracefully":
-#     registerRpcMethods(createBehavior(InvalidFrame))
-
-#     expect JsonRpcProviderError: # or whatever error nim-json-rpc maps protocol errors to
-#       discard await provider.send("eth_accounts")
-
-#   test "handles oversized WebSocket messages":
-#     registerRpcMethods(createBehavior(MessageTooBig))
-
-#     expect RpcNetworkError: # Large message handling depends on client limits
-#       discard await provider.send("eth_accounts")
-
-#   test "raises timeout error on slow WebSocket handshake":
-#     # Create a server that delays the WebSocket upgrade
-#     let slowServer = MockWebSocketServer.init(initTAddress("127.0.0.1:0"))
-#     # This would need custom implementation to delay handshake
-
-#     expect WebSocketTimeoutError:
-#       let slowProvider = JsonRpcProvider.new("ws://127.0.0.1:9998/ws")
-#       discard await slowProvider.send("eth_accounts").wait(100.millis)
-
-#   test "handles connection drops during message exchange":
-#     # Register normal behavior initially
-#     registerRpcMethods(createBehavior(Normal))
-
-#     # Start multiple requests
-#     let futures = @[
-#       provider.send("eth_accounts"),
-#       provider.send("eth_call"),
-#       provider.send("eth_newBlockFilter")
-#     ]
-
-#     # Close connections after a short delay
-#     await sleepAsync(5.millis)
-#     for conn in mockWsServer.connections:
-#       await conn.close(StatusCodes.AbnormalClosure, "Abnormal closure")
-
-#     # All should fail with network error
-#     for future in futures:
-#       expect RpcNetworkError:
-#         discard await future
-
-#   test "recovers from temporary WebSocket disconnections":
-#     # This test would verify client reconnection logic if implemented
-#     # Initial connection works
-#     registerRpcMethods(createBehavior(Normal))
-#     let result1 = await provider.send("eth_accounts")
-#     check result1.isOk
-
-#     # Simulate connection drop
-#     for conn in mockWsServer.connections:
-#       await conn.close(StatusCodes.GoingAway, "Going away")
-
-#     # Depending on provider implementation, this might auto-reconnect
-#     # or need manual reconnection
-#     expect RpcNetworkError:
-#       discard await provider.send("eth_accounts")
-
-#   test "handles WebSocket ping/pong timeouts":
-#     # This would test the ping/pong mechanism if the client supports it
-#     registerRpcMethods(createBehavior(Normal))
-
-#     # Mock a scenario where server doesn't respond to pings
-#     for conn in mockWsServer.connections:
-#       # Disable pong responses (if we had access to this)
-#       conn.onPing = nil
-
-#     # This test would need to trigger ping timeout
-#     # The exact implementation depends on the websocket client capabilities
-
-#   test "handles WebSocket close frame with invalid payload":
-#     # Test handling of malformed close frames
-#     registerRpcMethods(createBehavior(CloseWithCode, StatusCodes.ProtocolError, ""))
-
-#     expect JsonRpcProviderError:
-#       discard await provider.send("eth_accounts")
+  testCustomResponse(
+    "should raise JsonRpcProviderError for a returned error response",
+    JsonRpcProviderError,
+    proc(ws: WSSession) {.async.} =
+      let response = ResponseTx(
+        jsonrpc: "2.0",
+        id: 1,
+        error: ResponseError(code: 1, message: "some error"),
+        kind: rkError,
+      )
+      await ws.send(response.toJson)
+    ,
+  )
+  testCustomResponse(
+    "raises WebsocketConnectionError for closed connection",
+    WebsocketConnectionError,
+    proc(ws: WSSession) {.async.} =
+      # Simulate a closed connection
+      await ws.close(StatusGoingAway, "Going away")
+    ,
+  )
+  testCustomResponse(
+    "raises WebsocketConnectionError for failed connection",
+    WebsocketConnectionError,
+    response = proc(ws: WSSession) {.async.} =
+      return ,
+    before = proc() {.async.} =
+      # Used to simulate an HttpError, which is also raised for "Timeout expired
+      # while receiving headers", however replicating that exact scenario would
+      # take 120s as the HttpHeadersTimeout is hardcoded to 120 seconds.
+      provider = JsonRpcProvider.new("ws://localhost:9999"),
+  )
+  testCustomResponse(
+    "raises JsonRpcProviderError for exceptions in onProcessMessage callback",
+    JsonRpcProviderError,
+    response = proc(ws: WSSession) {.async.} =
+      let response = ResponseTx(jsonrpc: "2.0", id: 1, result: %"", kind: rkResult)
+      await ws.send(response.toJson)
+    ,
+    before = proc() {.async.} =
+      privateAccess(JsonRpcProvider)
+      let rpcClient = await provider.client
+      rpcClient.onProcessMessage = proc(
+          client: RpcClient, line: string
+      ): Result[bool, string] {.gcsafe, raises: [].} =
+        return err "Some error",
+  )
