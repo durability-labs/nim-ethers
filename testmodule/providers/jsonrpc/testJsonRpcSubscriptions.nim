@@ -211,7 +211,7 @@ suite "HTTP polling subscriptions - mock tests":
       if log.isErr:
         failedResultReceived = true
 
-    let id = await subscriptions.subscribeLogs(filter, handler)
+    discard await subscriptions.subscribeLogs(filter, handler)
 
     await sleepAsync(50.milliseconds)
     mockServer.nextGetChangesReturnsError = true
