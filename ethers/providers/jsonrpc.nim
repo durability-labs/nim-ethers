@@ -53,7 +53,8 @@ proc new*(
   _: type JsonRpcProvider,
   url=defaultUrl,
   pollingInterval=defaultPollingInterval,
-  maxPriorityFeePerGas=defaultMaxPriorityFeePerGas): JsonRpcProvider {.raises: [JsonRpcProviderError].} =
+  maxPriorityFeePerGas=defaultMaxPriorityFeePerGas
+): JsonRpcProvider {.raises: [JsonRpcProviderError].} =
 
   var initialized: Future[void]
   var client: RpcClient
@@ -71,8 +72,10 @@ proc new*(
         let http = newRpcHttpClient(getHeaders = jsonHeaders)
         await http.connect(url)
         client = http
-        subscriptions = JsonRpcSubscriptions.new(http,
-                                                pollingInterval = pollingInterval)
+        subscriptions = JsonRpcSubscriptions.new(
+          http,
+          pollingInterval = pollingInterval
+        )
       subscriptions.start()
 
   proc awaitClient(): Future[RpcClient] {.
@@ -90,7 +93,11 @@ proc new*(
       return subscriptions
 
   initialized = initialize()
-  return JsonRpcProvider(client: awaitClient(), subscriptions: awaitSubscriptions(), maxPriorityFeePerGas: maxPriorityFeePerGas)
+  return JsonRpcProvider(
+    client: awaitClient(),
+    subscriptions: awaitSubscriptions(),
+    maxPriorityFeePerGas: maxPriorityFeePerGas
+  )
 
 proc callImpl(
     client: RpcClient, call: string, args: JsonNode
@@ -98,8 +105,9 @@ proc callImpl(
   try:
     let response = await client.call(call, %args)
     without json =? JsonNode.fromJson(response.string), error:
-      raiseJsonRpcProviderError "Failed to parse response '" & response.string & "': " &
-        error.msg
+      raiseJsonRpcProviderError(
+        "Failed to parse response '" & response.string & "': " & error.msg
+      )
     return json
   except CancelledError as error:
     raise error
