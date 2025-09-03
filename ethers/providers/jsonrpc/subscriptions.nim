@@ -18,7 +18,7 @@ type
   JsonRpcSubscriptions* = ref object of RootObj
     client: RpcClient
     callbacks: Table[JsonNode, SubscriptionCallback]
-    methodHandlers: Table[string, MethodHandler]
+    subscriptionHandler: MethodHandler
     # Used by both PollingSubscriptions and WebsocketSubscriptions to store
     # subscription filters so the subscriptions can be recreated. With
     # PollingSubscriptions, the RPC node might prune/forget about them, and with
@@ -43,28 +43,13 @@ template `or`(a: JsonNode, b: typed): JsonNode =
 
 func start*(subscriptions: JsonRpcSubscriptions) =
   subscriptions.client.onProcessMessage =
-    proc(client: RpcClient,
-         line: string): Result[bool, string] {.gcsafe, raises: [].} =
+    proc(client: RpcClient, line: string): Result[bool, string] =
       if json =? JsonNode.fromJson(line):
-        if "method" in json:
-          let methodName = json{"method"}.getStr()
-          if methodName in subscriptions.methodHandlers:
-            let handler = subscriptions.methodHandlers.getOrDefault(methodName)
-            if not handler.isNil:
-              handler(json{"params"} or newJArray())
-              # false = do not continue processing message using json_rpc's
-              # default processing handler
-              return ok false
-
-      # true = continue processing message using json_rpc's default message handler
-      return ok true
-
-proc setMethodHandler(
-  subscriptions: JsonRpcSubscriptions,
-  `method`: string,
-  handler: MethodHandler
-) =
-  subscriptions.methodHandlers[`method`] = handler
+        if "method" in json and json{"method"}.getStr() == "eth_subscription":
+          if handler =? subscriptions.subscriptionHandler:
+            handler(json{"params"} or newJArray())
+            return ok false # do not process using json-rpc default handler
+      return ok true # continue processing using json-rpc default handler
 
 method subscribeBlocks*(subscriptions: JsonRpcSubscriptions,
                         onBlock: BlockHandler):
@@ -155,7 +140,7 @@ proc new*(_: type JsonRpcSubscriptions,
     let id = arguments{"subscription"} or newJString("")
     if callback =? subscriptions.getCallback(id):
       callback(id, success(arguments))
-  subscriptions.setMethodHandler("eth_subscription", subscriptionHandler)
+  subscriptions.subscriptionHandler = subscriptionHandler
 
   if resubscribeInterval > 0:
     if resubscribeInterval >= 300:
