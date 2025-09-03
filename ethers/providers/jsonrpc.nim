@@ -54,7 +54,7 @@ proc new*(
   url=defaultUrl,
   pollingInterval=defaultPollingInterval,
   maxPriorityFeePerGas=defaultMaxPriorityFeePerGas
-): JsonRpcProvider {.raises: [JsonRpcProviderError].} =
+): JsonRpcProvider {.raises: [].} =
 
   var initialized: Future[void]
   var client: RpcClient
