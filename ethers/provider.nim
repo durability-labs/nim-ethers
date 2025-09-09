@@ -31,6 +31,7 @@ type
     data*: seq[byte]
     logIndex*: UInt256
     removed*: bool
+    address*: Address
     topics*: seq[Topic]
   TransactionHash* = array[32, byte]
   BlockHash* = array[32, byte]
@@ -64,6 +65,7 @@ type
     timestamp*: UInt256
     hash*: ?BlockHash
     baseFeePerGas* : ?UInt256
+    logsBloom*: ?StUint[2048]
   PastTransaction* {.serialize.} = object
     blockHash*: BlockHash
     blockNumber*: UInt256
