@@ -15,14 +15,14 @@ for url in ["ws://" & providerUrl, "http://"  & providerUrl]:
     var provider: JsonRpcProvider
 
     setup:
-      provider = JsonRpcProvider.new(url, pollingInterval = 100.millis)
-
+      provider = await JsonRpcProvider.connect(url, pollingInterval = 100.millis)
 
     teardown:
       await provider.close()
 
     test "can be instantiated with a default URL":
-      discard JsonRpcProvider.new()
+      let provider = await JsonRpcProvider.connect()
+      await provider.close()
 
     test "lists all accounts":
       let accounts = await provider.listAccounts()
@@ -87,20 +87,9 @@ for url in ["ws://" & providerUrl, "http://"  & providerUrl]:
       expect EthersError:
         discard await confirming
 
-    test "raises JsonRpcProviderError when something goes wrong":
-      let provider = JsonRpcProvider.new("http://invalid.")
+    test "raises JsonRpcProviderError when connect fails":
       expect JsonRpcProviderError:
-        discard await provider.listAccounts()
-      expect JsonRpcProviderError:
-        discard await provider.send("evm_mine")
-      expect JsonRpcProviderError:
-        discard await provider.getBlockNumber()
-      expect JsonRpcProviderError:
-        discard await provider.getBlock(BlockTag.latest)
-      expect JsonRpcProviderError:
-        discard await provider.subscribe(proc(_: ?!Block) = discard)
-      expect JsonRpcProviderError:
-        discard await provider.getSigner().sendTransaction(Transaction.example)
+        discard await JsonRpcProvider.connect("http://invalid.")
 
     test "syncing":
       let isSyncing = await provider.isSyncing()
