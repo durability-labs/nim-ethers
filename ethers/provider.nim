@@ -27,7 +27,7 @@ type
   FilterByBlockHash* {.serialize.} = ref object of EventFilter
     blockHash*: BlockHash
   Log* {.serialize.} = object
-    blockNumber*: UInt256
+    blockNumber*: BlockNumber
     data*: seq[byte]
     logIndex*: UInt256
     removed*: bool
@@ -52,7 +52,7 @@ type
     blockHash*: ?BlockHash
     transactionHash*: TransactionHash
     logs*: seq[Log]
-    blockNumber*: ?UInt256
+    blockNumber*: ?BlockNumber
     cumulativeGasUsed*: UInt256
     effectiveGasPrice*: ?UInt256
     status*: TransactionStatus
@@ -61,14 +61,15 @@ type
   BlockHandler* = proc(blck: ?!Block) {.gcsafe, raises:[].}
   Topic* = array[32, byte]
   Block* {.serialize.} = object
-    number*: ?UInt256
+    number*: ?BlockNumber
     timestamp*: UInt256
     hash*: ?BlockHash
     baseFeePerGas* : ?UInt256
     logsBloom*: ?StUint[2048]
+  BlockNumber* = UInt256
   PastTransaction* {.serialize.} = object
     blockHash*: BlockHash
-    blockNumber*: UInt256
+    blockNumber*: BlockNumber
     sender* {.serialize("from"), deserialize("from").}: Address
     gas*: UInt256
     gasPrice*: UInt256
