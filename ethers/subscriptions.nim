@@ -92,11 +92,11 @@ proc processBlock(
       return false
     let logs = await subscriptions.getLogs(blck)
     for handler in subscriptions.blockSubscriptions.values:
-      handler(success blck)
+      handler(blck)
     for (id, logs) in logs.pairs:
       if (_, handler) =? subscriptions.logSubscriptions.?[id]:
         for log in logs:
-          handler(success log)
+          handler(log)
     return true
   except ProviderError:
     return false

@@ -1,6 +1,5 @@
 import std/os
 import pkg/asynctest/chronos/unittest
-import pkg/serde
 import pkg/json_rpc/rpcclient
 import pkg/json_rpc/rpcserver
 import ethers/providers/jsonrpc
@@ -20,8 +19,8 @@ for url in ["ws://" & providerUrl, "http://"  & providerUrl]:
 
     test "subscribes to new blocks":
       var latestBlock: Block
-      proc callback(blck: ?!Block) =
-        latestBlock = blck.value
+      proc callback(blck: Block) =
+        latestBlock = blck
       let subscription = await provider.subscribe(callback)
       discard await provider.send("evm_mine")
       check eventually latestBlock.number.isSome
@@ -31,9 +30,8 @@ for url in ["ws://" & providerUrl, "http://"  & providerUrl]:
 
     test "stops listening to new blocks when unsubscribed":
       var count = 0
-      proc callback(blck: ?!Block) =
-        if blck.isOk:
-          inc count
+      proc callback(blck: Block) =
+        inc count
       let subscription = await provider.subscribe(callback)
       discard await provider.send("evm_mine")
       check eventually count > 0
@@ -44,16 +42,15 @@ for url in ["ws://" & providerUrl, "http://"  & providerUrl]:
       check count == 0
 
     test "duplicate unsubscribe is harmless":
-      proc callback(blck: ?!Block) = discard
+      proc callback(blck: Block) = discard
       let subscription = await provider.subscribe(callback)
       await subscription.unsubscribe()
       await subscription.unsubscribe()
 
     test "stops listening to new blocks when provider is closed":
       var count = 0
-      proc callback(blck: ?!Block) =
-        if blck.isOk:
-          inc count
+      proc callback(blck: Block) =
+        inc count
       discard await provider.subscribe(callback)
       discard await provider.send("evm_mine")
       check eventually count > 0

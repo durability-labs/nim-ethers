@@ -57,8 +57,8 @@ type
     effectiveGasPrice*: ?UInt256
     status*: TransactionStatus
     transactionType* {.serialize("type"), deserialize("type").}: TransactionType
-  LogHandler* = proc(log: ?!Log) {.gcsafe, raises:[].}
-  BlockHandler* = proc(blck: ?!Block) {.gcsafe, raises:[].}
+  LogHandler* = proc(log: Log) {.gcsafe, raises:[].}
+  BlockHandler* = proc(blck: Block) {.gcsafe, raises:[].}
   Topic* = array[32, byte]
   Block* {.serialize.} = object
     number*: ?BlockNumber
@@ -239,8 +239,8 @@ proc confirm*(
   let blockEvent = newAsyncEvent()
   blockEvent.fire()
 
-  proc onBlock(blckResult: ?!Block) =
-    if blck =? blckResult and number =? blck.number:
+  proc onBlock(blck: Block) =
+    if number =? blck.number:
       blockNumber = number
       blockEvent.fire()
 

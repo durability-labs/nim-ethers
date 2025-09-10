@@ -49,7 +49,7 @@ for url in ["ws://" & providerUrl, "http://"  & providerUrl]:
       let oldBlock = !await provider.getBlock(BlockTag.latest)
       discard await provider.send("evm_mine")
       var newBlock: Block
-      let blockHandler = proc(blck: ?!Block) {.raises:[].}= newBlock = blck.value
+      let blockHandler = proc(blck: Block) = newBlock = blck
       let subscription = await provider.subscribe(blockHandler)
       discard await provider.send("evm_mine")
       check eventually newBlock.number.isSome
