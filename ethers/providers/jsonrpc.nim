@@ -12,6 +12,7 @@ import ../signer
 import ./jsonrpc/rpccalls
 import ./jsonrpc/conversions
 import ./jsonrpc/errors
+import ./jsonrpc/websocket
 
 export basics
 export provider
@@ -49,6 +50,7 @@ proc connect*(
       await websocket.connect(url)
       provider.client = websocket
       provider.subscriptions = Subscriptions.new(provider, pollingInterval)
+      await provider.subscriptions.useWebsocketUpdates(websocket)
     else:
       let http = newRpcHttpClient(getHeaders = jsonHeaders)
       await http.connect(url)

@@ -22,7 +22,8 @@ func new*(
   BlockSubscriber(
     provider: provider,
     processor: processor,
-    pollingInterval: pollingInterval
+    pollingInterval: pollingInterval,
+    wake: newAsyncEvent()
   )
 
 proc sleep(subscriber: BlockSubscriber) {.async:(raises:[CancelledError]).} =
@@ -51,7 +52,7 @@ proc start*(
   if subscriber.looping.isNil:
     subscriber.lastSeen = await subscriber.provider.getBlockNumber()
     subscriber.lastProcessed = subscriber.lastSeen
-    subscriber.wake = newAsyncEvent()
+    subscriber.wake.clear()
     subscriber.looping = subscriber.loop()
 
 proc stop*(subscriber: BlockSubscriber) {.async:(raises:[]).} =
