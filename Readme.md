@@ -137,11 +137,8 @@ You can now subscribe to Transfer events by calling `subscribe` on the contract
 instance.
 
 ```nim
-proc handleTransfer(transferResult: ?!Transfer) =
-  if transferResult.isOk:
-    echo "received transfer: ", transferResult.value
-  else:
-    echo "error during transfer: ", transferResult.error.msg
+proc handleTransfer(transferResult: Transfer) =
+  echo "received transfer: ", transferResult.value
 
 let subscription = await token.subscribe(Transfer, handleTransfer)
 ```
