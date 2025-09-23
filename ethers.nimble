@@ -4,7 +4,7 @@ description = "library for interacting with Ethereum"
 license = "MIT"
 
 requires "nim >= 2.0.14"
-requires "chronicles >= 0.10.3 & < 0.11.0"
+requires "chronicles >= 0.10.3"
 requires "chronos >= 4.0.4 & < 4.1.0"
 requires "contractabi >= 0.7.2 & < 0.8.0"
 requires "questionable >= 0.10.2 & < 0.11.0"
