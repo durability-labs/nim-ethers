@@ -13,8 +13,7 @@ requires "serde >= 1.2.1 & < 1.3.0"
 requires "stint >= 0.8.1 & < 0.9.0"
 requires "stew >= 0.2.0"
 requires "eth >= 0.5.0 & < 0.6.0"
+requires "asynctest >= 0.5.4 & < 0.6.0"
 
-task test, "Run the test suite":
-  # exec "nimble install -d -y"
-  withDir "testmodule":
-    exec "nimble test"
+task test, "Tests":
+  exec "nimble c -r testmodule/test.nim"
