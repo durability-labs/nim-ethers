@@ -5,7 +5,7 @@ license = "MIT"
 
 requires "chronicles >= 0.10.3"
 requires "chronos >= 4.0.4 & < 4.1.0"
-requires "contractabi >= 0.7.2 & < 0.8.0"
+requires "https://github.com/durability-labs/nim-contract-abi >= 0.7.2 & < 0.8.0"
 requires "questionable >= 0.10.2 & < 0.11.0"
 requires "json_rpc >= 0.5.0 & < 0.6.0"
 requires "https://github.com/durability-labs/nim-serde >= 2.0.0 & < 3.0.0"
