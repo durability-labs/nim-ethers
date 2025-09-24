@@ -198,30 +198,19 @@
         "sha1": "3238ff637c7b44d2fa8fcb839a8ded968e389de3"
       }
     },
-    "upraises": {
-      "version": "0.1.0",
-      "vcsRevision": "d9f268db1021959fe0f2c7a5e49fba741f9932a0",
-      "url": "https://github.com/markspanbroek/upraises",
-      "downloadMethod": "git",
-      "dependencies": [],
-      "checksums": {
-        "sha1": "176234f808b44a0be763df706ed634d6e8df17bb"
-      }
-    },
     "contractabi": {
-      "version": "0.7.2",
-      "vcsRevision": "977d6f5fa376700e186d4cc5b6202dc56f9715d3",
-      "url": "https://github.com/status-im/nim-contract-abi",
+      "version": "0.7.3",
+      "vcsRevision": "9ebd05f4aedd779fe681a16cee4f8b9240c1b61e",
+      "url": "https://github.com/durability-labs/nim-contract-abi",
       "downloadMethod": "git",
       "dependencies": [
         "stint",
         "stew",
         "nimcrypto",
-        "questionable",
-        "upraises"
+        "questionable"
       ],
       "checksums": {
-        "sha1": "dfc1a99f7e9082bb5fc1bbace1dbe06a1da3aaa8"
+        "sha1": "c4af448bd1b7f9a57335d2641c1294933f520d4f"
       }
     },
     "secp256k1": {
@@ -381,20 +370,23 @@
       }
     },
     "serde": {
-      "version": "1.2.2",
-      "vcsRevision": "83e4a2ccf621d3040c6e7e0267393ca2d205988e",
-      "url": "https://github.com/codex-storage/nim-json",
+      "version": "2.0.0",
+      "vcsRevision": "e7ed568f0e62f594c6720bc465188bd723c7354c",
+      "url": "https://github.com/durability-labs/nim-serde",
       "downloadMethod": "git",
       "dependencies": [
         "chronicles",
         "questionable",
         "stint",
-        "stew"
+        "stew",
+        "asynctest"
       ],
       "checksums": {
-        "sha1": "443069c5cfa101de7bd4cbdf1b96ae2d37e4f76d"
+        "sha1": "a3847710e8acbb0d273aa5ce76ce23fd382bf235"
       }
     }
   },
-  "tasks": {}
+  "tasks": {
+    "test": {}
+  }
 }
