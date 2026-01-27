@@ -14,7 +14,7 @@ Use the [Nimble][2] package manager to add `ethers` to an existing
 project. Add the following to its .nimble file:
 
 ```nim
-requires "https://github.com/durability-labs/nim-ethers.git >= 3.1.0 & < 4.0.0"
+requires "https://github.com/durability-labs/nim-ethers.git >= 3.1.1 & < 4.0.0"
 ```
 
 To avoid conflicts with previous versions of `contractabi`, use the following command to install dependencies:
