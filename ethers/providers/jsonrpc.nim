@@ -10,6 +10,7 @@ import ../provider
 import ../subscriptions
 import ../signer
 import ./jsonrpc/rpccalls
+import ./jsonrpc/rpclimits
 import ./jsonrpc/conversions
 import ./jsonrpc/errors
 import ./jsonrpc/websocket
@@ -54,7 +55,7 @@ proc connect*(
     else:
       let http = newRpcHttpClient(getHeaders = jsonHeaders)
       await http.connect(url)
-      provider.client = http
+      provider.client = http.limited(concurrency = 100)
       provider.subscriptions = Subscriptions.new(provider, pollingInterval)
     return provider
 
