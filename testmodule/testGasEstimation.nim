@@ -64,11 +64,11 @@ suite "gas estimation":
     let latest = CallOverrides(blockTag: some BlockTag.latest)
     let pending = CallOverrides(blockTag: some BlockTag.pending)
 
-    # retrieve time of pending block
-    let time = await contract.getTime(overrides=pending)
+    # retrieve time of latest block
+    let time = await contract.getTime(overrides=latest)
 
-    # ensure that time of latest block and pending block differ
-    check (await contract.getTime(overrides=latest)) != time
+    # ensure that time of pending block and latest block differ
+    check (await contract.getTime(overrides=pending)) != time
 
     # estimate gas
     let gasLatest = await contract.estimateGas.checkTimeEquals(time, latest)
