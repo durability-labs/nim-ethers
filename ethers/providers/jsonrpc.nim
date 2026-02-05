@@ -53,7 +53,7 @@ proc connect*(
       provider.subscriptions = Subscriptions.new(provider, pollingInterval)
       await provider.subscriptions.useWebsocketUpdates(websocket)
     else:
-      let http = newRpcHttpClient(getHeaders = jsonHeaders)
+      let http = newRpcHttpClient(getHeaders = jsonHeaders, flags = {Http11Pipeline})
       await http.connect(url)
       provider.client = http.limited(concurrency = 100)
       provider.subscriptions = Subscriptions.new(provider, pollingInterval)
