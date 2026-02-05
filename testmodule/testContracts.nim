@@ -196,14 +196,15 @@ for url in ["ws://"  & providerUrl, "http://"  & providerUrl]:
       check transfers.len == 1
 
     test "can wait for contract interaction tx to be mined":
-      let signer0 = provider.getSigner(accounts[0])
-      let confirming = token.connect(signer0)
-                            .mint(accounts[1], 100.u256)
-                            .confirm(3)
-      await sleepAsync(100.millis) # wait for tx to be mined
-      await provider.mineBlocks(2) # two additional blocks
+      discard await provider.send("evm_setAutomine", @[%false])
+      let signer = provider.getSigner(accounts[0])
+      let response = await token.connect(signer).mint(accounts[1], 100.u256)
+      let confirming = response.confirm(3)
+      await provider.mineBlocks(3)
+      let blockNumber = await provider.getBlockNumber()
       let receipt = await confirming
-      check receipt.blockNumber.isSome
+      check !receipt.blockNumber == blockNumber - 2
+      discard await provider.send("evm_setAutomine", @[%true])
 
     test "can query last block event log":
 
