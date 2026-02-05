@@ -148,10 +148,9 @@ suite "Contract custom errors":
 
     let contract = contract.connect(provider.getSigner())
     try:
-      let future = contract.revertsTransaction(overrides = overrides).confirm(1)
-      await sleepAsync(100.millis) # wait for transaction to be submitted
+      let response = await contract.revertsTransaction(overrides = overrides)
       discard await provider.send("evm_mine", @[]) # mine the transaction
-      discard await future # wait for confirmation
+      discard await response.confirm(1)
       fail()
     except ErrorWithArguments as error:
       check error.arguments.one == 1.u256
