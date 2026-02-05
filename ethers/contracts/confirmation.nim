@@ -7,8 +7,10 @@ type Confirmable* = object
   response*: ?TransactionResponse
   convert*: ConvertCustomErrors
 
-proc confirm(tx: Confirmable, confirmations, timeout: int):
-  Future[TransactionReceipt] {.async: (raises: [CancelledError, EthersError]).} =
+proc confirm*(tx: Confirmable,
+              confirmations: int = EthersDefaultConfirmations,
+              timeout: int = EthersReceiptTimeoutBlks):
+             Future[TransactionReceipt] {.async: (raises: [CancelledError, EthersError]).} =
 
   without response =? tx.response:
     raise newException(
