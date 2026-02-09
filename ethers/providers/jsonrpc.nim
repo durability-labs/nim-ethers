@@ -30,11 +30,15 @@ type
     client: RpcClient
     subscriptions: Subscriptions
     options: JsonRpcOptions
+    cache: Cache
   JsonRpcOptions* = object
     pollingInterval*: Duration = 4.seconds
     httpPipelining*: bool = false
     httpConcurrencyLimit*: ?int
     maxPriorityFeePerGas*: UInt256 = 1_000_000_000.u256
+  Cache = object
+    chainId: ?UInt256
+    supportsMaxPriorityFee: ?bool
 
 proc jsonHeaders: seq[(string, string)] =
   @[("Content-Type", "application/json")]
@@ -129,14 +133,21 @@ method getGasPrice*(
 
 method getMaxPriorityFeePerGas*(
     provider: JsonRpcProvider
-): Future[UInt256] {.async: (raises: [CancelledError]).} =
-    try:
-      convertError:
-        return await provider.client.eth_maxPriorityFeePerGas()
-    except JsonRpcProviderError:
-      # If the provider does not provide the implementation
-      # let's just remove the manual value
-      return provider.options.maxPriorityFeePerGas
+): Future[UInt256] {.async: (raises: [ProviderError, CancelledError]).} =
+  convertError:
+    var fee: ?UInt256
+    without var supported =? provider.cache.supportsMaxPriorityFee:
+      try:
+        fee = some await provider.client.eth_maxPriorityFeePerGas()
+        supported = true
+      except rpcclient.JsonRpcError:
+        supported = false
+      provider.cache.supportsMaxPriorityFee = some supported
+    if fee =? fee:
+      return fee
+    if supported:
+      return await provider.client.eth_maxPriorityFeePerGas()
+    return provider.options.maxPriorityFeePerGas
 
 method getTransactionCount*(
     provider: JsonRpcProvider, address: Address, blockTag = BlockTag.latest
@@ -194,13 +205,16 @@ method estimateGas*(
 method getChainId*(
     provider: JsonRpcProvider
 ): Future[UInt256] {.async: (raises: [ProviderError, CancelledError]).} =
-  convertError:
-    try:
-      return await provider.client.eth_chainId()
-    except CancelledError as error:
-      raise error
-    except CatchableError:
-      return parse(await provider.client.net_version(), UInt256)
+  without var chainId =? provider.cache.chainId:
+    convertError:
+      try:
+        chainId = await provider.client.eth_chainId()
+      except CancelledError as error:
+        raise error
+      except CatchableError:
+        chainId = parse(await provider.client.net_version(), UInt256)
+    provider.cache.chainId = some chainId
+  chainId
 
 method sendTransaction*(
     provider: JsonRpcProvider, rawTransaction: seq[byte]

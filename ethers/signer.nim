@@ -58,7 +58,7 @@ method getGasPrice*(
 
 method getMaxPriorityFeePerGas*(
     signer: Signer
-): Future[UInt256] {.base, async: (raises: [SignerError, CancelledError]).} =
+): Future[UInt256] {.base, async: (raises: [ProviderError, SignerError, CancelledError]).} =
   return await signer.provider.getMaxPriorityFeePerGas()
 
 method getTransactionCount*(
@@ -116,62 +116,42 @@ method populateTransaction*(
   ## function in contract.nim.
 
   var address: Address
+  var chainId: UInt256
+
   convertError:
     address = await signer.getAddress()
+    chainId = await signer.getChainId()
 
   if sender =? transaction.sender and sender != address:
     raiseSignerError("from address mismatch")
-  if chainId =? transaction.chainId and chainId != await signer.getChainId():
+  if txChainId =? transaction.chainId and txChainId != chainId:
     raiseSignerError("chain id mismatch")
 
   var populated = transaction
 
-  if transaction.sender.isNone:
-    populated.sender = some(address)
-  if transaction.chainId.isNone:
-    populated.chainId = some(await signer.getChainId())
+  if populated.sender.isNone:
+    populated.sender = some address
 
-  let blk = await signer.provider.getBlock(BlockTag.latest)
+  if populated.chainId.isNone:
+    populated.chainId = some chainId
 
-  if baseFeePerGas =? blk.?baseFeePerGas:
-    let maxPriorityFeePerGas = transaction.maxPriorityFeePerGas |? (await signer.provider.getMaxPriorityFeePerGas())
-    populated.maxPriorityFeePerGas = some(maxPriorityFeePerGas)
+  if populated.gasPrice.isNone and populated.maxFeePerGas.isNone:
+    let blk = await signer.provider.getBlock(BlockTag.latest)
+    if baseFeePerGas =? blk.?baseFeePerGas:
+      without var maxPriorityFeePerGas =? populated.maxPriorityFeePerGas:
+        maxPriorityFeePerGas = await signer.provider.getMaxPriorityFeePerGas()
+        populated.maxPriorityFeePerGas = some maxPriorityFeePerGas
+      # Multiply by 2 because during times of congestion, baseFeePerGas can increase by 12.5% per block.
+      # https://github.com/ethers-io/ethers.js/discussions/3601#discussioncomment-4461273
+      populated.maxFeePerGas = some(baseFeePerGas * 2 + maxPriorityFeePerGas)
+    else:
+      populated.gasPrice = some await signer.getGasPrice()
 
-    # Multiply by 2 because during times of congestion, baseFeePerGas can increase by 12.5% per block.
-    # https://github.com/ethers-io/ethers.js/discussions/3601#discussioncomment-4461273
-    let maxFeePerGas = transaction.maxFeePerGas |? (baseFeePerGas * 2 + maxPriorityFeePerGas)
-    populated.maxFeePerGas = some(maxFeePerGas)
+  if transaction.nonce.isNone:
+    populated.nonce = some await signer.getNonce()
 
-    populated.gasPrice = none(UInt256)
-
-    trace "EIP-1559 is supported", maxPriorityFeePerGas = maxPriorityFeePerGas, maxFeePerGas = maxFeePerGas
-  else:
-    populated.gasPrice = some(transaction.gasPrice |? (await signer.getGasPrice()))
-    populated.maxFeePerGas = none(UInt256)
-    populated.maxPriorityFeePerGas = none(UInt256)
-    trace "EIP-1559 is not supported", gasPrice = populated.gasPrice
-
-  if transaction.nonce.isNone and transaction.gasLimit.isNone:
-    # when both nonce and gasLimit are not populated, we must ensure getNonce is
-    # followed by an estimateGas so we can determine if there was an error. If
-    # there is an error, the nonce must be decreased to prevent nonce gaps and
-    # stuck transactions
-    populated.nonce = some(await signer.getNonce())
-    try:
-      populated.gasLimit = some(await signer.estimateGas(populated, BlockTag.pending))
-    except EstimateGasError as e:
-      raise e
-    except ProviderError as e:
-      raiseSignerError(e.msg)
-
-  else:
-    if transaction.nonce.isNone:
-      let nonce = await signer.getNonce()
-      populated.nonce = some nonce
-    if transaction.gasLimit.isNone:
-      populated.gasLimit = some(await signer.estimateGas(populated, BlockTag.pending))
-
-  doAssert populated.nonce.isSome, "nonce not populated!"
+  if transaction.gasLimit.isNone:
+    populated.gasLimit = some await signer.estimateGas(populated, BlockTag.pending)
 
   return populated
 
