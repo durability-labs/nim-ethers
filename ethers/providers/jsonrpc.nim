@@ -25,39 +25,56 @@ export errors.JsonRpcProviderError
 logScope:
   topics = "ethers jsonrpc"
 
-type JsonRpcProvider* = ref object of Provider
-  client: RpcClient
-  subscriptions: Subscriptions
-  maxPriorityFeePerGas: UInt256
-
-const defaultUrl = "http://localhost:8545"
-const defaultPollingInterval = 4.seconds
-const defaultMaxPriorityFeePerGas = 1_000_000_000.u256
+type
+  JsonRpcProvider* = ref object of Provider
+    client: RpcClient
+    subscriptions: Subscriptions
+    options: JsonRpcOptions
+  JsonRpcOptions* = object
+    pollingInterval*: Duration = 4.seconds
+    httpPipelining*: bool = false
+    httpConcurrencyLimit*: ?int
+    maxPriorityFeePerGas*: UInt256 = 1_000_000_000.u256
 
 proc jsonHeaders: seq[(string, string)] =
   @[("Content-Type", "application/json")]
 
 proc connect*(
   _: type JsonRpcProvider,
-  url=defaultUrl,
-  pollingInterval=defaultPollingInterval,
-  maxPriorityFeePerGas=defaultMaxPriorityFeePerGas
+  url = "http://localhost:8545",
+  options: JsonRpcOptions
 ): Future[JsonRpcProvider] {.async:(raises: [JsonRpcProviderError, CancelledError]).} =
   convertError:
-    let provider = JsonRpcProvider(maxPriorityFeePerGas: maxPriorityFeePerGas)
+    let provider = JsonRpcProvider(options: options)
     case parseUri(url).scheme
     of "ws", "wss":
-      let websocket = newRpcWebSocketClient(getHeaders = jsonHeaders)
-      await websocket.connect(url)
-      provider.client = websocket
-      provider.subscriptions = Subscriptions.new(provider, pollingInterval)
-      await provider.subscriptions.useWebsocketUpdates(websocket)
+      let client = newRpcWebSocketClient(getHeaders = jsonHeaders)
+      await client.connect(url)
+      provider.client = client
+      provider.subscriptions = Subscriptions.new(provider, options.pollingInterval)
+      await provider.subscriptions.useWebsocketUpdates(client)
     else:
-      let http = newRpcHttpClient(getHeaders = jsonHeaders, flags = {Http11Pipeline})
-      await http.connect(url)
-      provider.client = http.limited(concurrency = 100)
-      provider.subscriptions = Subscriptions.new(provider, pollingInterval)
+      let flags = if options.httpPipelining: {Http11Pipeline} else: {}
+      let client = newRpcHttpClient(getHeaders = jsonHeaders, flags = flags)
+      await client.connect(url)
+      if limit =? options.httpConcurrencyLimit:
+        provider.client = client.limited(concurrency = limit)
+      else:
+        provider.client = client
+      provider.subscriptions = Subscriptions.new(provider, options.pollingInterval)
     return provider
+
+proc connect*(
+  _: type JsonRpcProvider,
+  url = "http://localhost:8545",
+  pollingInterval = JsonRpcOptions().pollingInterval,
+  maxPriorityFeePerGas = JsonRpcOptions().maxPriorityFeePerGas
+): Future[JsonRpcProvider] {.async:(raises: [JsonRpcProviderError, CancelledError]).} =
+  let options = JsonRpcOptions(
+    pollingInterval: pollingInterval,
+    maxPriorityFeePerGas: maxPriorityFeePerGas
+  )
+  await JsonRpcProvider.connect(url, options)
 
 proc callImpl(
     client: RpcClient, call: string, args: JsonNode
@@ -119,7 +136,7 @@ method getMaxPriorityFeePerGas*(
     except JsonRpcProviderError:
       # If the provider does not provide the implementation
       # let's just remove the manual value
-      return provider.maxPriorityFeePerGas
+      return provider.options.maxPriorityFeePerGas
 
 method getTransactionCount*(
     provider: JsonRpcProvider, address: Address, blockTag = BlockTag.latest
