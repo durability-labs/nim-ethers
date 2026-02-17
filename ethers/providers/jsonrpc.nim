@@ -14,6 +14,7 @@ import ./jsonrpc/rpclimits
 import ./jsonrpc/conversions
 import ./jsonrpc/errors
 import ./jsonrpc/websocket
+import ./jsonrpc/pipelining
 
 export basics
 export provider
@@ -34,6 +35,7 @@ type
   JsonRpcOptions* = object
     pollingInterval*: Duration = 4.seconds
     httpPipelining*: bool = false
+    httpPipeliningIdleTimeout*: Duration = 5.seconds
     httpConcurrencyLimit*: ?int
     maxPriorityFeePerGas*: UInt256 = 1_000_000_000.u256
   Cache = object
@@ -58,13 +60,21 @@ proc connect*(
       provider.subscriptions = Subscriptions.new(provider, options.pollingInterval)
       await provider.subscriptions.useWebsocketUpdates(client)
     else:
-      let flags = if options.httpPipelining: {Http11Pipeline} else: {}
-      let client = newRpcHttpClient(getHeaders = jsonHeaders, flags = flags)
-      await client.connect(url)
-      if limit =? options.httpConcurrencyLimit:
-        provider.client = client.limited(concurrency = limit)
+      var client: RpcClient
+      if options.httpPipelining:
+        client = await HttpPipeliningClient.connect(
+          url,
+          HttpPipeliningOptions(
+            idleTimeout: options.httpPipeliningIdleTimeout
+          )
+        )
       else:
-        provider.client = client
+        let httpClient = newRpcHttpClient(getHeaders = jsonHeaders)
+        await httpClient.connect(url)
+        client = httpClient
+      if limit =? options.httpConcurrencyLimit:
+        client = client.limited(concurrency = limit)
+      provider.client = client
       provider.subscriptions = Subscriptions.new(provider, options.pollingInterval)
     return provider
 
