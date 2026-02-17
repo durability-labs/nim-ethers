@@ -11,3 +11,11 @@ suite "JSON-RPC performance":
     await allFutures(futures)
     check allIt(futures, it.completed)
     await provider.close()
+
+  test "can handle 50 000 simultaneous connections using HTTP pipelining":
+    let options = JsonRpcOptions(httpConcurrencyLimit: some 100, httpPipelining: true)
+    let provider = await JsonRpcProvider.connect("http://localhost:8545", options)
+    let futures = newSeqWith(50_000, provider.getBlockNumber())
+    await allFutures(futures)
+    check allIt(futures, it.completed)
+    await provider.close()

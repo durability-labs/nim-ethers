@@ -46,5 +46,5 @@ method request(
   finally:
     client.decreaseConcurrency()
 
-method close*(client: LimitedRpcClient): Future[void] {.async: (raises: []).} =
+method close*(client: LimitedRpcClient) {.async: (raises: []).} =
   await client.wrapped.close()

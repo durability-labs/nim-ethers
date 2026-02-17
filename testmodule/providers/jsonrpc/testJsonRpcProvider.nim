@@ -7,15 +7,18 @@ import pkg/stew/byteutils
 import ../../examples
 import ../../miner
 
-let providerUrl = getEnv("ETHERS_TEST_PROVIDER", "localhost:8545")
-for url in ["ws://" & providerUrl, "http://"  & providerUrl]:
+for (scheme, pipelining) in [("ws", false), ("http", false), ("http", true)]:
 
-  suite "JsonRpcProvider (" & url & ")":
+  suite "JSON RPC Provider (" & scheme & ", pipelining: " & $pipelining & ")":
 
+    let url = scheme & "://" & getEnv("ETHERS_TEST_PROVIDER", "localhost:8545")
     var provider: JsonRpcProvider
 
     setup:
-      provider = await JsonRpcProvider.connect(url, pollingInterval = 100.millis)
+      var options = JsonRpcOptions()
+      options.httpPipelining = pipelining
+      options.pollingInterval = 100.milliseconds
+      provider = await JsonRpcProvider.connect(url, options)
 
     teardown:
       await provider.close()
