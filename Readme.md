@@ -17,12 +17,6 @@ project. Add the following to its .nimble file:
 requires "https://github.com/durability-labs/nim-ethers.git >= 3.2.0 & < 4.0.0"
 ```
 
-To avoid conflicts with previous versions of `contractabi`, use the following command to install dependencies:
-
-```bash
-nimble install --maximumtaggedversions=2
-```
-
 Usage
 -----
 
