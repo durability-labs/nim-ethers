@@ -1,5 +1,6 @@
 import std/deques
-import pkg/json_rpc/client
+import pkg/json_rpc/client {.all.}
+import pkg/json_rpc/errors
 import pkg/chronos
 
 type LimitedRpcClient* = ref object of RpcClient
@@ -27,23 +28,23 @@ proc decreaseConcurrency(client: LimitedRpcClient) =
   if client.waiting.len > 0:
     client.waiting.popFirst().complete()
 
-method call*(
-    client: LimitedRpcClient, name: string, params: RequestParamsTx
-): Future[JsonString] {.async.} =
+method send(
+    client: LimitedRpcClient, data: seq[byte]
+) {.async: (raises: [CancelledError, JsonRpcError]).} =
   try:
     await client.increaseConcurrency()
-    await client.wrapped.call(name, params)
+    await client.wrapped.send(data)
   finally:
     client.decreaseConcurrency()
 
-method close*(client: LimitedRpcClient) {.async.} =
+method request(
+    client: LimitedRpcClient, reqData: seq[byte]
+): Future[seq[byte]] {.async: (raises: [CancelledError, JsonRpcError]).} =
+  try:
+    await client.increaseConcurrency()
+    await client.wrapped.request(reqData)
+  finally:
+    client.decreaseConcurrency()
+
+method close*(client: LimitedRpcClient): Future[void] {.async: (raises: []).} =
   await client.wrapped.close()
-
-method callBatch*(
-    client: LimitedRpcClient, calls: RequestBatchTx
-): Future[ResponseBatchRx] {.async.} =
-  try:
-    await client.increaseConcurrency()
-    await client.wrapped.callBatch(calls)
-  finally:
-    client.decreaseConcurrency()

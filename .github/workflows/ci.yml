@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        nim: [2.0.14, 2.2.2]
+        nim: [2.0.14, 2.2.6]
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
       run: npm start &
 
     - name: Build
-      run: nimble install -y --maximumtaggedversions=2
+      run: nimble install -y
 
     - name: Test
       run: nimble test -y
