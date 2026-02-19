@@ -1,8 +1,25 @@
 import std/sequtils
 import pkg/asynctest/chronos/unittest
 import ethers
+import ethers/erc20
+import ../../hardhat
 
-suite "JSON-RPC performance":
+type TestToken = ref object of Erc20Token
+method mint(token: TestToken, holder: Address, amount: UInt256): Confirmable {.base, contract.}
+
+suite "JSON-RPC performance (websockets)":
+
+  test "can call several contract functions in parallel":
+    let provider = await JsonRpcProvider.connect("ws://localhost:8545")
+    let deployment = readDeployment()
+    let token = TestToken.new(!deployment.address(TestToken), provider)
+    let futures = newSeqWith(100, token.decimals())
+    await allFutures(futures)
+    for future in futures:
+      discard await future
+    await provider.close()
+
+suite "JSON-RPC performance (http)":
 
   test "can handle 50 000 simultaneous connections by limiting concurrency":
     let options = JsonRpcOptions(httpConcurrencyLimit: some 100)
