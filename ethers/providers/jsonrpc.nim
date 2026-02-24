@@ -54,13 +54,11 @@ proc connect*(
     let provider = JsonRpcProvider(options: options)
     case parseUri(url).scheme
     of "ws", "wss":
-      let subscriptions = Subscriptions.new(provider, options.pollingInterval)
-      let router = subscriptions.rpcRouter()
-      let client = newRpcWebSocketClient(getHeaders = jsonHeaders, router = router)
-      provider.client = client
-      provider.subscriptions = subscriptions
+      let client = newRpcWebSocketClient(getHeaders = jsonHeaders)
       await client.connect(url)
-      await client.subscribeBlockNotifications()
+      provider.client = client
+      provider.subscriptions = Subscriptions.new(provider, options.pollingInterval)
+      await provider.subscriptions.useWebsocketUpdates(client)
     else:
       var client: RpcClient
       if options.httpPipelining:
