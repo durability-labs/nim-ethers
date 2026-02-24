@@ -140,8 +140,8 @@
       }
     },
     "chronos": {
-      "version": "4.2.0",
-      "vcsRevision": "0d00279e67ad9fadeb944944449adc89f052b8bd",
+      "version": "4.0.4",
+      "vcsRevision": "0646c444fce7c7ed08ef6f2c9a7abfd172ffe655",
       "url": "https://github.com/status-im/nim-chronos",
       "downloadMethod": "git",
       "dependencies": [
@@ -152,7 +152,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "add14e711abc98b2203e7c5a35c860c7b86f15b5"
+        "sha1": "455802a90204d8ad6b31d53f2efff8ebfe4c834a"
       }
     },
     "confutils": {
@@ -354,9 +354,9 @@
       }
     },
     "json_rpc": {
-      "version": "0.5.5",
-      "vcsRevision": "09b5e047ff121d750d7d3e3c04847d8412887164",
-      "url": "https://github.com/durability-labs/nim-json-rpc",
+      "version": "0.5.4",
+      "vcsRevision": "b6e40a776fa2d00b97a9366761fb7da18f31ae5c",
+      "url": "https://github.com/status-im/nim-json-rpc",
       "downloadMethod": "git",
       "dependencies": [
         "stew",
@@ -371,7 +371,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "b82a6c0f225b6b85ba2b37e39347a0fdc5ba9c2c"
+        "sha1": "d8e8be795fcf098f4ce03b5826f6b3153f6a6e07"
       }
     },
     "serde": {
