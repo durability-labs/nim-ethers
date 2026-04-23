@@ -8,10 +8,11 @@ import ./fields
 
 type EventHandler*[E: Event] = proc(event: E) {.gcsafe, raises:[].}
 
-proc subscribe*[E: Event](contract: Contract,
-                          _: type E,
-                          handler: EventHandler[E]):
-                         Future[Subscription] =
+proc subscribe*[E: Event](
+  contract: Contract,
+  _: type E,
+  handler: EventHandler[E]
+): Future[Subscription] {.async: (raises: [ProviderError, CancelledError]).}=
 
   let topic = topic($E, E.fieldTypes).toArray
   let filter = EventFilter(address: contract.address, topics: @[topic])
@@ -20,12 +21,13 @@ proc subscribe*[E: Event](contract: Contract,
     if event =? E.decode(log.data, log.topics):
       handler(event)
 
-  contract.provider.subscribe(filter, logHandler)
+  await contract.provider.subscribe(filter, logHandler)
 
-proc queryFilter[E: Event](contract: Contract,
-                            _: type E,
-                            filter: EventFilter):
-                           Future[seq[E]] {.async.} =
+proc queryFilter[E: Event](
+  contract: Contract,
+  _: type E,
+  filter: EventFilter
+): Future[seq[E]] {.async: (raises: [ProviderError, CancelledError]).} =
 
   var logs = await contract.provider.getLogs(filter)
   logs.keepItIf(not it.removed)
@@ -37,33 +39,35 @@ proc queryFilter[E: Event](contract: Contract,
 
   return events
 
-proc queryFilter*[E: Event](contract: Contract,
-                            _: type E):
-                           Future[seq[E]] =
+proc queryFilter*[E: Event](
+  contract: Contract,
+  _: type E
+): Future[seq[E]] {.async: (raises: [ProviderError, CancelledError]).} =
 
   let topic = topic($E, E.fieldTypes).toArray
   let filter = EventFilter(address: contract.address,
                            topics: @[topic])
 
-  contract.queryFilter(E, filter)
+  await contract.queryFilter(E, filter)
 
 proc queryFilter*[E: Event](contract: Contract,
-                            _: type E,
-                            blockHash: BlockHash):
-                           Future[seq[E]] =
+  _: type E,
+  blockHash: BlockHash
+): Future[seq[E]] {.async: (raises: [ProviderError, CancelledError]).} =
 
   let topic = topic($E, E.fieldTypes).toArray
   let filter = FilterByBlockHash(address: contract.address,
                                  topics: @[topic],
                                  blockHash: blockHash)
 
-  contract.queryFilter(E, filter)
+  await contract.queryFilter(E, filter)
 
-proc queryFilter*[E: Event](contract: Contract,
-                            _: type E,
-                            fromBlock: BlockTag,
-                            toBlock: BlockTag):
-                           Future[seq[E]] =
+proc queryFilter*[E: Event](
+  contract: Contract,
+  _: type E,
+  fromBlock: BlockTag,
+  toBlock: BlockTag
+): Future[seq[E]] {.async: (raises: [ProviderError, CancelledError]).} =
 
   let topic = topic($E, E.fieldTypes).toArray
   let filter = Filter(address: contract.address,
@@ -71,4 +75,4 @@ proc queryFilter*[E: Event](contract: Contract,
                       fromBlock: fromBlock,
                       toBlock: toBlock)
 
-  contract.queryFilter(E, filter)
+  await contract.queryFilter(E, filter)
