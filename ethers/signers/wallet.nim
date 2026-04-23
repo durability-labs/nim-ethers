@@ -1,4 +1,4 @@
-import eth/keys
+import eth/common/keys
 import ../basics
 import ../provider
 import ../transaction
