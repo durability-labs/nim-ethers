@@ -57,11 +57,11 @@ method send(
   await response.closeWait()
 
 method request(
-    client: HttpPipeliningClient, data: seq[byte]
-): Future[seq[byte]] {.async: (raises: [CancelledError, JsonRpcError]).} =
+    client: HttpPipeliningClient, data: seq[byte], id: int
+): Future[ResponseBatchRx] {.async: (raises: [CancelledError, JsonRpcError]).} =
   let response = await client.post(data)
   try:
-    await response.getBodyBytes()
+    parseResponse(await response.getBodyBytes(), ResponseBatchRx)
   except HttpError as error:
     raise newException(RpcTransportError, error.msg, error)
   finally:

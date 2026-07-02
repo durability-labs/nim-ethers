@@ -38,11 +38,11 @@ method send(
     client.decreaseConcurrency()
 
 method request(
-    client: LimitedRpcClient, reqData: seq[byte]
-): Future[seq[byte]] {.async: (raises: [CancelledError, JsonRpcError]).} =
+    client: LimitedRpcClient, reqData: seq[byte], id: int
+): Future[ResponseBatchRx] {.async: (raises: [CancelledError, JsonRpcError]).} =
   try:
     await client.increaseConcurrency()
-    await client.wrapped.request(reqData)
+    await client.wrapped.request(reqData, id)
   finally:
     client.decreaseConcurrency()
 
