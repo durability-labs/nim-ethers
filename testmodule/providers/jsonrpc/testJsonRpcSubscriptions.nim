@@ -64,3 +64,16 @@ for (scheme, pipelining) in [("ws", false), ("http", false), ("http", true)]:
       await sleepAsync(200.millis)
       check count == 0
 
+suite "JSON-RPC websocket subscription updates":
+
+  test "uses websocket notifications of new blocks":
+    let url = "ws://" & getEnv("ETHERS_TEST_PROVIDER", "localhost:8545")
+    let options = JsonRpcOptions(pollingInterval: 100.days) # disable polling
+    let provider = await JsonRpcProvider.connect(url, options)
+    var called = false
+    proc callback(_: Block) =
+      called = true
+    let subscription = await provider.subscribe(callback)
+    discard await provider.send("evm_mine")
+    check eventually called
+    await subscription.unsubscribe()
