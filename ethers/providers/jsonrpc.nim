@@ -29,8 +29,9 @@ logScope:
 type
   JsonRpcProvider* = ref object of Provider
     client: RpcClient
-    subscriptions: Subscriptions
+    url: string
     options: JsonRpcOptions
+    subscriptions: Subscriptions
     cache: Cache
   JsonRpcOptions* = object
     pollingInterval*: Duration = 4.seconds
@@ -45,40 +46,57 @@ type
 proc jsonHeaders: seq[(string, string)] =
   @[("Content-Type", "application/json")]
 
+proc connectWebsocket(
+  provider: JsonRpcProvider
+) {.async:(raises: [JsonRpcProviderError, CancelledError]).} =
+  convertError:
+    let router = provider.subscriptions.rpcRouter()
+    let client = newRpcWebSocketClient(getHeaders = jsonHeaders, router = router)
+    await client.connect(provider.url)
+    await client.subscribeBlockNotifications()
+    provider.client = client
+
+proc connectHttpPipelining(
+  provider: JsonRpcProvider
+) {.async:(raises: [JsonRpcProviderError, CancelledError]).} =
+  convertError:
+    let idleTimeout = provider.options.httpPipeliningIdleTimeout
+    let options = HttpPipeliningOptions(idleTimeout: idleTimeout)
+    provider.client = await HttpPipeliningClient.connect(provider.url, options)
+
+proc connectHttp(
+  provider: JsonRpcProvider
+) {.async:(raises: [JsonRpcProviderError, CancelledError]).} =
+  convertError:
+    let client = newRpcHttpClient(getHeaders = jsonHeaders)
+    await client.connect(provider.url)
+    provider.client = client
+
+proc connect(
+  provider: JsonRpcProvider
+) {.async:(raises: [JsonRpcProviderError, CancelledError]).} =
+  case parseUri(provider.url).scheme
+  of "ws", "wss":
+    await provider.connectWebsocket()
+  elif provider.options.httpPipelining:
+    await provider.connectHttpPipelining()
+  else:
+    await provider.connectHttp()
+
+proc limitConcurrency(provider: JsonRpcProvider) =
+  if limit =? provider.options.httpConcurrencyLimit:
+    provider.client = provider.client.limited(concurrency = limit)
+
 proc connect*(
   _: type JsonRpcProvider,
   url = "http://localhost:8545",
   options: JsonRpcOptions
 ): Future[JsonRpcProvider] {.async:(raises: [JsonRpcProviderError, CancelledError]).} =
-  convertError:
-    let provider = JsonRpcProvider(options: options)
-    case parseUri(url).scheme
-    of "ws", "wss":
-      let subscriptions = Subscriptions.new(provider, options.pollingInterval)
-      let router = subscriptions.rpcRouter()
-      let client = newRpcWebSocketClient(getHeaders = jsonHeaders, router = router)
-      provider.client = client
-      provider.subscriptions = subscriptions
-      await client.connect(url)
-      await client.subscribeBlockNotifications()
-    else:
-      var client: RpcClient
-      if options.httpPipelining:
-        client = await HttpPipeliningClient.connect(
-          url,
-          HttpPipeliningOptions(
-            idleTimeout: options.httpPipeliningIdleTimeout
-          )
-        )
-      else:
-        let httpClient = newRpcHttpClient(getHeaders = jsonHeaders)
-        await httpClient.connect(url)
-        client = httpClient
-      if limit =? options.httpConcurrencyLimit:
-        client = client.limited(concurrency = limit)
-      provider.client = client
-      provider.subscriptions = Subscriptions.new(provider, options.pollingInterval)
-    return provider
+  let provider = JsonRpcProvider(url: url, options: options)
+  provider.subscriptions = Subscriptions.new(provider, options.pollingInterval)
+  await provider.connect()
+  provider.limitConcurrency()
+  return provider
 
 proc connect*(
   _: type JsonRpcProvider,
