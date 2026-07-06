@@ -10,7 +10,7 @@ export errors
 
 type
   Signer* = ref object of RootObj
-    populateLock: AsyncLock
+    populateLock: AsyncLock = newAsyncLock()
 
 template raiseSignerError*(message: string, parent: ref CatchableError = nil) =
   raise newException(SignerError, message, parent)
@@ -93,17 +93,8 @@ method getNonce(
   return await signer.getTransactionCount(BlockTag.pending)
 
 template withLock*(signer: Signer, body: untyped) =
-  if signer.populateLock.isNil:
-    signer.populateLock = newAsyncLock()
-
-  await signer.populateLock.acquire()
-  try:
+  withLock(signer.populateLock):
     body
-  finally:
-    try:
-      signer.populateLock.release()
-    except AsyncLockError as e:
-      raiseSignerError e.msg, e
 
 method populateTransaction*(
   signer: Signer,
