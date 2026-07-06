@@ -1,4 +1,4 @@
-version = "3.3.2"
+version = "3.3.3"
 author = "Nim Ethers Authors"
 description = "library for interacting with Ethereum"
 license = "MIT"
