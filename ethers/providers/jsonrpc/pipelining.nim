@@ -1,7 +1,6 @@
 import pkg/json_rpc/client {.all.}
 import pkg/json_rpc/errors
 import pkg/chronos/apps/http/httpclient
-import pkg/stew/byteutils
 import ../../basics
 
 type
@@ -40,7 +39,7 @@ proc post(
   try:
     response = await request.send()
   except HttpError as error:
-    raise newException(JsonRpcError, error.msg, error)
+    raise newException(RpcTransportError, error.msg, error)
   finally:
     await request.closeWait()
 
@@ -51,39 +50,22 @@ proc post(
 
   response
 
-method call*(
-    client: HttpPipeliningClient, name: string, params: RequestParamsTx
-): Future[JsonString] {.async.} =
-  let id = client.getNextId()
-  let data = cast[seq[byte]](requestTxEncode(name, params, id))
+method send(
+    client: HttpPipeliningClient, data: seq[byte]
+) {.async: (raises: [CancelledError, JsonRpcError]).} =
   let response = await client.post(data)
-  let future = newFuture[JsonString]()
-  client.awaiting[id] = future
-  try:
-    let body = await response.getBodyBytes()
-    if error =? client.processMessage(string.fromBytes(body)).errorOption:
-      raise newException(JsonRpcError, error)
-  except HttpError as error:
-    raise newException(JsonRpcError, error.msg, error)
-  finally:
-    client.awaiting.del(id)
-    await response.closeWait()
-  await future
+  await response.closeWait()
 
-method callBatch*(
-    client: HttpPipeliningClient, calls: RequestBatchTx
-): Future[ResponseBatchRx] {.async.} =
-  let data = cast[seq[byte]](requestBatchEncode(calls))
+method request(
+    client: HttpPipeliningClient, data: seq[byte], id: int
+): Future[ResponseBatchRx] {.async: (raises: [CancelledError, JsonRpcError]).} =
   let response = await client.post(data)
   try:
-    let body = await response.getBodyBytes()
-    if error =? client.processMessage(string.fromBytes(body)).errorOption:
-      raise newException(JsonRpcError, error)
+    parseResponse(await response.getBodyBytes(), ResponseBatchRx)
   except HttpError as error:
-    raise newException(JsonRpcError, error.msg, error)
+    raise newException(RpcTransportError, error.msg, error)
   finally:
     await response.closeWait()
-  await client.batchFut
 
 method close*(client: HttpPipeliningClient) {.async: (raises: []).} =
   let session = client.session
