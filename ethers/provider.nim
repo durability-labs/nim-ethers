@@ -292,5 +292,5 @@ proc confirm*(
 
 method close*(
     provider: Provider
-) {.base, async: (raises: [ProviderError, CancelledError]).} =
+) {.base, async: (raises: [ProviderError]).} =
   discard

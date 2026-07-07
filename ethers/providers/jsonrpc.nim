@@ -31,8 +31,8 @@ type
     client: RpcClient
     url: string
     options: JsonRpcOptions
-    connecting: AsyncLock = newAsyncLock()
-    disconnected: bool = true
+    disconnected: bool
+    connecting: Future[void].Raising([JsonRpcProviderError, CancelledError])
     subscriptions: Subscriptions
     cache: Cache
   JsonRpcOptions* = object
@@ -79,19 +79,16 @@ proc connectHttp(
 proc connect(
   provider: JsonRpcProvider
 ) {.async:(raises: [JsonRpcProviderError, CancelledError]).} =
-  if provider.disconnected:
-    withLock(provider.connecting):
-      if provider.disconnected:
-        case parseUri(provider.url).scheme
-        of "ws", "wss":
-          await provider.connectWebsocket()
-        elif provider.options.httpPipelining:
-          await provider.connectHttpPipelining()
-        else:
-          await provider.connectHttp()
-        if limit =? provider.options.httpConcurrencyLimit:
-          provider.client = provider.client.limited(concurrency = limit)
-        provider.disconnected = false
+  case parseUri(provider.url).scheme
+  of "ws", "wss":
+    await provider.connectWebsocket()
+  elif provider.options.httpPipelining:
+    await provider.connectHttpPipelining()
+  else:
+    await provider.connectHttp()
+  if limit =? provider.options.httpConcurrencyLimit:
+    provider.client = provider.client.limited(concurrency = limit)
+  provider.disconnected = false
 
 proc connect*(
   _: type JsonRpcProvider,
@@ -115,6 +112,17 @@ proc connect*(
   )
   await JsonRpcProvider.connect(url, options)
 
+proc reconnect(
+  provider: JsonRpcProvider
+) {.async:(raises: [JsonRpcProviderError, CancelledError]).} =
+  if provider.disconnected:
+    if provider.connecting == nil:
+      provider.connecting = provider.connect()
+      await provider.connecting
+      provider.connecting = nil
+    else:
+      await provider.connecting
+
 proc callImpl(
     client: RpcClient, call: string, args: JsonNode
 ): Future[JsonNode] {.async: (raises: [JsonRpcProviderError, CancelledError]).} =
@@ -133,49 +141,49 @@ proc callImpl(
 proc send*(
     provider: JsonRpcProvider, call: string, arguments: seq[JsonNode] = @[]
 ): Future[JsonNode] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     return await provider.client.callImpl(call, %arguments)
 
 proc listAccounts*(
     provider: JsonRpcProvider
 ): Future[seq[Address]] {.async: (raises: [JsonRpcProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     return await provider.client.eth_accounts()
 
 method getBlockNumber*(
     provider: JsonRpcProvider
 ): Future[UInt256] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     return await provider.client.eth_blockNumber()
 
 method getBlock*(
     provider: JsonRpcProvider, tag: BlockTag
 ): Future[?Block] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     return await provider.client.eth_getBlockByNumber(tag, false)
 
 method call*(
     provider: JsonRpcProvider, tx: Transaction, blockTag = BlockTag.latest
 ): Future[seq[byte]] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     return await provider.client.eth_call(tx, blockTag)
 
 method getGasPrice*(
     provider: JsonRpcProvider
 ): Future[UInt256] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     return await provider.client.eth_gasPrice()
 
 method getMaxPriorityFeePerGas*(
     provider: JsonRpcProvider
 ): Future[UInt256] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     var fee: ?UInt256
     without var supported =? provider.cache.supportsMaxPriorityFee:
@@ -194,28 +202,28 @@ method getMaxPriorityFeePerGas*(
 method getTransactionCount*(
     provider: JsonRpcProvider, address: Address, blockTag = BlockTag.latest
 ): Future[UInt256] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     return await provider.client.eth_getTransactionCount(address, blockTag)
 
 method getTransaction*(
     provider: JsonRpcProvider, txHash: TransactionHash
 ): Future[?PastTransaction] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     return await provider.client.eth_getTransactionByHash(txHash)
 
 method getTransactionReceipt*(
     provider: JsonRpcProvider, txHash: TransactionHash
 ): Future[?TransactionReceipt] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     return await provider.client.eth_getTransactionReceipt(txHash)
 
 method getLogs*(
     provider: JsonRpcProvider, filter: EventFilter
 ): Future[seq[Log]] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     let logsJson =
       if filter of Filter:
@@ -237,7 +245,7 @@ method estimateGas*(
     transaction: Transaction,
     blockTag = BlockTag.latest,
 ): Future[UInt256] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   try:
     convertError:
       return await provider.client.eth_estimateGas(transaction, blockTag)
@@ -252,7 +260,7 @@ method estimateGas*(
 method getChainId*(
     provider: JsonRpcProvider
 ): Future[UInt256] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   without var chainId =? provider.cache.chainId:
     convertError:
       try:
@@ -267,7 +275,7 @@ method getChainId*(
 method sendTransaction*(
     provider: JsonRpcProvider, rawTransaction: seq[byte]
 ): Future[TransactionResponse] {.async: (raises: [ProviderError, CancelledError]).} =
-  await provider.connect()
+  await provider.reconnect()
   convertError:
     let hash = await provider.client.eth_sendRawTransaction(rawTransaction)
     return TransactionResponse(hash: hash, provider: provider)
@@ -292,12 +300,14 @@ method isSyncing*(
 
 method close*(
     provider: JsonRpcProvider
-) {.async: (raises: [ProviderError, CancelledError]).} =
-  convertError:
-    await provider.subscriptions.close()
-    withLock(provider.connecting):
-      await provider.client.close()
-      provider.disconnected = false
+) {.async: (raises: [ProviderError]).} =
+  provider.disconnected = false
+  provider.client.onDisconnect = nil
+  if provider.connecting != nil:
+    await provider.connecting.cancelAndWait()
+    provider.connecting = nil
+  await provider.subscriptions.close()
+  await provider.client.close()
 
 type
   JsonRpcSigner* = ref object of Signer
